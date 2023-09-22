@@ -112,7 +112,7 @@ class DataManager():
         for batch in uproot.iterate([rootPath],library="pd"):
             print(fileC)
             if mod == "simLabel":
-                batches.append(batch.sample(frac=0.1).reset_index(drop=True))
+                batches.append(batch.sample(frac=0.4).reset_index(drop=True))
             else:
                 batches.append(batch)
             del batch

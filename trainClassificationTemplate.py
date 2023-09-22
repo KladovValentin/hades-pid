@@ -4,14 +4,11 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-import torchvision
 from torch.utils.data import Dataset, SubsetRandomSampler, DataLoader
 import uproot
 import pandas
 import matplotlib.pyplot as plt
 import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
 from tqdm.auto import tqdm
 from tqdm import trange
 from pympler import asizeof
@@ -21,7 +18,7 @@ from dataHandling import My_dataset, DataManager, load_dataset
 
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
-#print(torch.cuda.get_device_name(0))
+print(torch.cuda.get_device_name(0))
 print(f"Using {device} device")
 torch.cuda.empty_cache()
 #print(torch.cuda.memory_allocated(0))
@@ -134,15 +131,21 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
 
             (s_x, s_y) = next(sim_iter)
             (e_x, _)   = next(exp_iter)
+            s_x = s_x.to(device)
+            s_y = s_y.long().to(device)
+            e_x = e_x.to(device)
 
-            domain_label = torch.zeros(len(s_y)).long()
+            domain_label = torch.zeros(len(s_y)).long().to(device)
             s_class, s_domain = model(s_x)
+            s_class = s_class.to(device)
+            s_domain = s_domain.to(device)
             #print(s_class.shape[1])
             #print(s_y)
             s_loss = lossClass(s_class, s_y) + lossDomain(s_domain, domain_label)
 
-            domain_label = torch.ones(len(e_x)).long()
+            domain_label = torch.ones(len(e_x)).long().to(device)
             _, e_domain = model(e_x)
+            e_domain = e_domain.to(device)
             e_loss = lossDomain(e_domain, domain_label)
 
             running_loss = s_loss + e_loss
@@ -152,7 +155,7 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
             optimizer.step()
 
             indices = torch.max(s_class, 1)[1]
-            running_acc = torch.sum(indices==s_y)/s_y.shape[0]
+            running_acc = torch.sum(indices.cpu()==s_y.cpu())/s_y.cpu().shape[0]
 
             train_history.append(1-running_acc)
             loss_history.append(float(running_loss))
@@ -173,15 +176,22 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
                             
                         (vs_x, vs_y) = next(val_sim_iter)
                         (ve_x, _)   = next(val_exp_iter)
+                        vs_x = vs_x.to(device)
+                        vs_y = vs_y.long().to(device)
+                        ve_x = ve_x.to(device)
+
                         vs_y = vs_y.long().flatten()
 
-                        vdomain_label = torch.zeros(len(vs_y)).long()
+                        vdomain_label = torch.zeros(len(vs_y)).long().to(device)
                         vs_class, vs_domain = model(vs_x)
+                        vs_class = vs_class.to(device)
+                        vs_domain = vs_domain.to(device)
                         #print(s_class)
                         vs_loss = lossClass(vs_class, vs_y) + lossDomain(vs_domain, vdomain_label)
 
-                        vdomain_label = torch.ones(len(ve_x)).long()
+                        vdomain_label = torch.ones(len(ve_x)).long().to(device)
                         _, ve_domain = model(ve_x)
+                        ve_domain = ve_domain.to(device)
                         ve_loss = lossDomain(ve_domain, vdomain_label)
 
                         vrunning_loss = vs_loss + ve_loss
@@ -190,7 +200,7 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
                         vrunning_acc = torch.sum(vindices==vs_y)/vs_y.shape[0]
 
                         validLosses.append(float(vrunning_loss))
-                        validAccuracies.append(vrunning_acc)
+                        validAccuracies.append(vrunning_acc.cpu())
 
                 loss_valid = np.mean(np.array(validLosses))
                 accuracy_valid = np.mean(np.array(validAccuracies))
@@ -270,18 +280,18 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
     nn_model = DANN(input_dim=input_dim, output_dim=nClasses).type(torch.FloatTensor).to(device)
 
     #weights = np.array([0.7195969431474389,0.8441318995839315,1.9450211571985525,8.533961043270507,0.5572980154693978]).astype(np.float32)
-    weights = np.array([0.6738684703630756,0.49427438150839936,2.2488611656428765,24.62766199493874,0.9810510497144537]).astype(np.float32)
+    weights = np.array([0.6738684703630756,2.49427438150839936,2.2488611656428765,24.62766199493874,0.9810510497144537]).astype(np.float32)
     #weights = np.array([1.33, 1.64, 2.98, 60, 1]).astype(np.float32)
     #weights = np.array([1.776, 1.7275, 1.699, 33.7245, 0.582]).astype(np.float32)
 
     #weights = np.array([0.6738684703630756, 10 ,2.2488611656428765, 60 ,0.9810510497144537]).astype(np.float32)
     #weights = np.array([5.13, 1.54 ,0.41, 31.3 ,1]).astype(np.float32)
-    loss = nn.CrossEntropyLoss(torch.tensor(weights))
+    loss = nn.CrossEntropyLoss(torch.tensor(weights)).to(device)
     #loss = nn.MSELoss()
     loss_domain = nn.NLLLoss()
 
     #optimizer = optim.SGD(nn_model.parameters(), lr=0.1, momentum=0.9, weight_decay=0.05)
-    optimizer = optim.Adam(nn_model.parameters(), lr=0.00001, betas=(0.5, 0.9), weight_decay=0.00005)
+    optimizer = optim.Adam(nn_model.parameters(), lr=0.00001, betas=(0.5, 0.9), weight_decay=0.0000)
     #optimizer = optim.Adam(nn_model.parameters(), lr=0.00003, weight_decay=0.05)
 
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
@@ -291,7 +301,7 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
     #train_DN_model(nn_model, train_loader, loss, optimizer, 10, valid_loader, scheduler = scheduler)
     train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 1, scheduler=scheduler)
 
-    torch.onnx.export(nn_model,                                # model being run
+    torch.onnx.export(nn_model.cpu(),                                # model being run
                   torch.randn(1, input_dim),    # model input (or a tuple for multiple inputs)
                   "tempModel.onnx",           # where to save the model (can be a file or file-like object)
                   input_names = ["input"],              # the model's input names

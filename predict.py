@@ -20,12 +20,16 @@ from tqdm import trange
 import math
 
 
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
+torch.cuda.empty_cache()
+
+
 def loadModel(input_dim, nClasses):
     nn_model = DANN(input_dim=input_dim, output_dim=nClasses).type(torch.FloatTensor)
     nn_model.type(torch.FloatTensor)
     nn_model.load_state_dict(torch.load('tempModel' + dataSetType + '.pt'))
     #nn_model.eval()
-    return nn_model
+    return nn_model.to(device)
 
 def constructPredictionFrame(index,nparray):
     # return new DataFrame with 4 columns corresponding to probabilities of resulting classes and 5th column to chi2 
@@ -73,12 +77,13 @@ def makePredicionList(experiment_path, savePath):
     for i_step in tepoch:
         tepoch.set_description(f"Epoch {1}")
         (ve_x, _) = next(exp_iter)
+        ve_x = ve_x.to(device)
         #inputArr = np.array([[-0.424882, -1.417659, -1.180430,  0.007431, -0.053383,  0.000000,  0.086087,  0.376829, -0.008964,   0.091145, -0.346358],
         #                     [-0.169018, -1.417659,  2.259818,  1.890011,  0.408186,  0.125931, -0.047164,  0.560324, -0.004500,  -0.314674, -0.249043]]).astype(np.float32)
         #inputTens = torch.tensor(inputArr)
         #print(nn_model(inputTens)[0].softmax(dim=1).detach().numpy())
         e_class, e_domain = nn_model(ve_x)
-        e_class = e_class.softmax(dim=1).detach().numpy()
+        e_class = e_class.softmax(dim=1).detach().cpu().numpy()
         dat_list.append(pandas.DataFrame(e_class))
 
     fullPredictionList = pandas.concat(list(dat_list),ignore_index=True)
@@ -168,8 +173,8 @@ def draw_probabilities_vs_parameter(probs, tables, column):
 
 
 def draw_parameter_spread(tables, column):
-    class_hist0 = np.sqrt(np.absolute(tables[0][column].to_numpy()))
-    class_hist1 = np.sqrt(np.absolute(tables[2][column].to_numpy()))
+    class_hist0 = np.sqrt(np.absolute(tables[1][column].to_numpy()))
+    class_hist1 = np.sqrt(np.absolute(tables[3][column].to_numpy()))
     class_hist2 = np.sqrt(np.absolute(tables[4][column].to_numpy()))
 
 
@@ -277,13 +282,13 @@ def analyseOutput(predFileName, experiment_path):
     mask2 = []
     for i in range(lrange):
         cN = list(pT.columns)
-        mask.append((dftCorrExp['beta']<1.2) & (dftCorrExp['beta']>0.55))
+        mask.append((dftCorrExp['beta']<11.2) & (dftCorrExp['beta']>-0.55))
         mask2.append((dftCorrExp['beta']<1.2) & (dftCorrExp['beta']>0.55))
         for j in range(lrange-1):
             mask2[i] = mask2[i]# & (dftCorrExp['pid'] == i)
-            mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.3)
+            mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.0)
         tablesPClasses.append(pT.loc[mask2[i]].copy())
-        #tablesClasses.append(dftCorrExp.loc[mask[i]].copy())
+        tablesClasses.append(dftCorrExp.loc[mask[i]].copy())
         tablesClasses2.append(dftCorrExp.loc[mask2[i]].copy())
         #tablesClasses3.append(dftCorrExp)
     #print(tablesClasses[0])
@@ -293,10 +298,10 @@ def analyseOutput(predFileName, experiment_path):
 
     print(tablesClasses2)
     print(tablesPClasses)
-    draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
+    #draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
     #draw_probabilities_spread(tablesPClasses[1],tablesPClasses[1])
     #draw_confusion_matrix(np.array(mask),np.array(mask2))
-    #draw_parameter_spread(tablesClasses,'mass2')
+    draw_parameter_spread(tablesClasses,'mass2')
     #draw_parameter_spread(tablesClasses,'tof')
     #draw_parameter_spread(tablesClasses2,'mass2')
     #plt.show()
@@ -324,7 +329,7 @@ dataSetType = 'NewKIsUsed'
 #print("start python predict")
 #predict('expu1' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
 #predict('simu1' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
-#analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
-analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet')
+analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
+#analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet')
 
 #plt.show()
