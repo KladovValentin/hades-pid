@@ -11,6 +11,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from tqdm.auto import tqdm
 import math 
+import os
 
 
 class My_dataset(Dataset):
@@ -30,7 +31,7 @@ def load_dataset(dataTable):
     dfn = df.to_numpy()
 
     x = dfn[:,:-1].astype(np.float32)
-    y = dfn[:, -1].astype(int)
+    y = dfn[:, -1].astype(np.float32)
 
     print('x shape = ' + str(x.shape))
     print('y shape = ' + str(y.shape))
@@ -197,8 +198,8 @@ class DataManager():
         dftCorr = dftCorr[[c for c in dftCorr if c not in ['pid']] + ['pid']]
         print(dftCorr)
         #self.prepareTable(dftCorr)
-        pq.write_table(pa.Table.from_pandas(dftCorr), 'simu' + dataSetType + '.parquet')
-        pq.write_table(pa.Table.from_pandas(setTable), 'expu' + dataSetType + '.parquet')
+        pq.write_table(pa.Table.from_pandas(dftCorr), os.path.join("nndata",'simu' + dataSetType + '.parquet'))
+        pq.write_table(pa.Table.from_pandas(setTable), os.path.join("nndata",'expu' + dataSetType + '.parquet'))
         dftCorr = self.dropCols(dftCorr)
         setTable = self.dropCols(setTable)
         print(dftCorr)
@@ -220,20 +221,21 @@ class DataManager():
 
         print(dftCorr.loc[dftCorr['pid']==3])
 
-        pq.write_table(pa.Table.from_pandas(dftCorr), 'simu1' + dataSetType + '.parquet')
-        pq.write_table(pa.Table.from_pandas(setTable), 'expu1' + dataSetType + '.parquet')
+        pq.write_table(pa.Table.from_pandas(dftCorr), os.path.join("nndata",'simu1' + dataSetType + '.parquet'))
+        pq.write_table(pa.Table.from_pandas(setTable), os.path.join("nndata",'expu1' + dataSetType + '.parquet'))
 
         if (mod.startswith("train")):
             writeTrainData(mean,std, dataSetType)
+        
 
 
 
 def writeTrainData(meanArr,stdArr, dataSetType):
-    np.savetxt('meanValues' + dataSetType + '.txt', meanArr, fmt='%s')
-    np.savetxt('stdValues' + dataSetType + '.txt', stdArr, fmt='%s')
+    np.savetxt(os.path.join("nndata",'meanValues' + dataSetType + '.txt'), meanArr, fmt='%s')
+    np.savetxt(os.path.join("nndata",'stdValues' + dataSetType + '.txt'), stdArr, fmt='%s')
 
 def readTrainData(dataSetType):
-    meanValues = np.loadtxt('meanValues' + dataSetType + '.txt')
-    stdValues = np.loadtxt('stdValues' + dataSetType + '.txt')
+    meanValues = np.loadtxt(os.path.join("nndata",'meanValues' + dataSetType + '.txt'))
+    stdValues = np.loadtxt(os.path.join("nndata",'stdValues' + dataSetType + '.txt'))
     return meanValues, stdValues
 

@@ -61,7 +61,7 @@ class DANN(nn.Module):
             nn.LeakyReLU(inplace=True),
             nn.Linear(256, 128),
             #nn.Dropout(0.5),
-            nn.LeakyReLU(inplace=True)
+            #nn.LeakyReLU(inplace=True)
         )
 
         self.class_classifier = nn.Sequential(
@@ -75,12 +75,13 @@ class DANN(nn.Module):
             nn.Linear(512, output_dim)
         )
         self.domain_classifier = nn.Sequential(
-            nn.Linear(128, 512, bias=True),
+            nn.Linear(128, 128, bias=True),
             nn.LeakyReLU(inplace=True),
-            nn.Linear(512, 128),
-            nn.LeakyReLU(inplace=True),
-            nn.Linear(128, 2),
-            nn.LogSoftmax(dim=1)
+            nn.Linear(128, 1),
+            torch.nn.Sigmoid()
+            #nn.LeakyReLU(inplace=True),
+            #nn.Linear(128, 2),
+            #nn.LogSoftmax(dim=1)
         )
 
     
@@ -91,6 +92,6 @@ class DANN(nn.Module):
         feature = self.feature(input_data)
         class_output = self.class_classifier(feature)
         reverse_feature = self.grad_reverse(feature)
-        domain_output = self.domain_classifier(reverse_feature)
+        domain_output = self.domain_classifier(reverse_feature).squeeze()
 
-        return class_output, domain_output
+        return class_output, domain_output, feature

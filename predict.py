@@ -18,6 +18,7 @@ from torch.utils.data import Dataset, SubsetRandomSampler, DataLoader
 from tqdm.auto import tqdm
 from tqdm import trange
 import math
+import os
 
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -50,7 +51,7 @@ def checkDistributions():
 
 
 def makePredicionList(experiment_path, savePath):
-    dftCorrExp = pandas.read_parquet(experiment_path)
+    dftCorrExp = pandas.read_parquet(os.path.join("nndata",experiment_path))
 
     #class1p = dftCorrExp.loc[(dftCorrExp['pid']==1)].copy()
     #restt = dftCorrExp.drop(class1p.index)
@@ -82,12 +83,14 @@ def makePredicionList(experiment_path, savePath):
         #                     [-0.169018, -1.417659,  2.259818,  1.890011,  0.408186,  0.125931, -0.047164,  0.560324, -0.004500,  -0.314674, -0.249043]]).astype(np.float32)
         #inputTens = torch.tensor(inputArr)
         #print(nn_model(inputTens)[0].softmax(dim=1).detach().numpy())
-        e_class, e_domain = nn_model(ve_x)
+        e_class, e_domain, e_feature = nn_model(ve_x)
         e_class = e_class.softmax(dim=1).detach().cpu().numpy()
+        e_feature = e_feature[:,0:10].detach().cpu().numpy()
+        e_class = np.concatenate((e_class,e_feature),axis=1)
         dat_list.append(pandas.DataFrame(e_class))
 
     fullPredictionList = pandas.concat(list(dat_list),ignore_index=True)
-    pq.write_table(pa.Table.from_pandas(fullPredictionList), savePath)
+    pq.write_table(pa.Table.from_pandas(fullPredictionList), os.path.join("nndata",savePath))
     return fullPredictionList
 
 
@@ -173,13 +176,13 @@ def draw_probabilities_vs_parameter(probs, tables, column):
 
 
 def draw_parameter_spread(tables, column):
-    #class_hist0 = np.sqrt(np.absolute(tables[1][column].to_numpy()))
-    #class_hist1 = np.sqrt(np.absolute(tables[3][column].to_numpy()))
+    class_hist0 = np.sqrt(np.absolute(tables[1][column].to_numpy()))
+    class_hist1 = np.sqrt(np.absolute(tables[3][column].to_numpy()))
     class_hist2 = np.sqrt(np.absolute(tables[4][column].to_numpy()))
     
-    class_hist0 = tables[1][column].to_numpy()
-    class_hist1 = tables[3][column].to_numpy()
-    class_hist2 = tables[4][column].to_numpy()
+    #class_hist0 = tables[1][column].to_numpy()
+    #class_hist1 = tables[3][column].to_numpy()
+    #class_hist2 = tables[4][column].to_numpy()
 
 
     class_histAll = np.concatenate((class_hist0,class_hist1),axis=0)
@@ -234,6 +237,29 @@ def draw_2d_param_spread(tables, column1, column2):
     plt.show()
 
 
+def draw_feature_distribution(tablesS, tablesE):
+    class_histS = [tablesS[0][(list(tablesS[0].columns)[-10+i])].to_numpy() for i in range(9)]
+    class_histE = [tablesE[0][(list(tablesE[0].columns)[-10+i])].to_numpy() for i in range(9)]
+
+    #bins = np.linspace(-0.25,0.25,3000)
+    bins = [np.arange(np.mean(class_histS[i]) - 2 * np.std(class_histS[i]), np.mean(class_histS[i]) + 2 * np.std(class_histS[i]) + 4*np.std(class_histS[i])/200,  4*np.std(class_histS[i])/200) for i in range(9)]
+
+    # Create a 3x3 grid of subplots
+    fig, axes = plt.subplots(3, 3, figsize=(10, 8))
+
+    # Loop through the subplots and plot histograms
+    for i, ax in enumerate(axes.flatten()):
+        ax.hist(class_histS[i], bins[i], edgecolor='#0504aa', linewidth=2, fill=False, histtype='step',
+            alpha=0.7, rwidth=1.0, density=True, label = 'sim')
+        ax.hist(class_histE[i], bins[i], edgecolor='#9e001a', linewidth=2, fill=False, histtype='step',
+            alpha=0.7, rwidth=1.0, density=True, label = 'exp')
+        ax.legend()
+    
+    fig.suptitle('"Feature" distributions, 9/128, both train AND validation dataset', fontsize=16)
+
+    plt.show()
+
+
 def write_output(outputs, mod, enlist):
     goodTableList = []
     badEventTableList = []
@@ -272,8 +298,8 @@ def write_output(outputs, mod, enlist):
 
 
 def analyseOutput(predFileName, experiment_path):
-    pT = pandas.read_parquet(predFileName)
-    dftCorrExp = pandas.read_parquet(experiment_path)
+    pT = pandas.read_parquet(os.path.join("nndata",predFileName))
+    dftCorrExp = pandas.read_parquet(os.path.join("nndata",experiment_path))
     print(pT)
     print(dftCorrExp)
     tablesPClasses = []
@@ -314,6 +340,26 @@ def analyseOutput(predFileName, experiment_path):
 
     #0.7380741598515985,0.924485731694385,2.541151390667785,4.290668468491014,0.5163012252092372
 
+def analyseExpAndSim(predFileNameSim, experiment_pathSim, predFileNameExp, experiment_pathExp):
+    pTS = pandas.read_parquet(os.path.join("nndata",predFileNameSim))
+    dftS = pandas.read_parquet(os.path.join("nndata",experiment_pathSim))
+    pTE = pandas.read_parquet(os.path.join("nndata",predFileNameExp))
+    dftE = pandas.read_parquet(os.path.join("nndata",experiment_pathExp))
+
+    tablesPClassesS = []
+    tablesPClassesE = []
+    lrange = 5
+    mask = []
+    mask2 = []
+    #for i in range(lrange):
+    mask.append((dftS['beta']<1.2) & (dftS['beta']>0.55))
+    mask2.append((dftE['beta']<1.2) & (dftE['beta']>0.55))
+    tablesPClassesS.append(pTS.loc[mask[0]].copy())
+    tablesPClassesE.append(pTE.loc[mask2[0]].copy())
+        
+    draw_feature_distribution(tablesPClassesS,tablesPClassesE)
+
+
 def predict_nn(fName, oName):
 
     predictionList = makePredicionList(fName, oName)
@@ -335,5 +381,7 @@ dataSetType = 'NewKIsUsed'
 #predict('simu1' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
 analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 #analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet')
+
+analyseExpAndSim('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet', 'predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 
 #plt.show()

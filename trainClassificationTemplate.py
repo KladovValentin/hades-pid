@@ -9,6 +9,7 @@ import uproot
 import pandas
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 from tqdm.auto import tqdm
 from tqdm import trange
 from pympler import asizeof
@@ -18,12 +19,13 @@ from dataHandling import My_dataset, DataManager, load_dataset
 
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
-print(torch.cuda.get_device_name(0))
-print(f"Using {device} device")
-torch.cuda.empty_cache()
+#print(torch.cuda.get_device_name(0))
+#print(f"Using {device} device")
+if device == "cuda:0":
+    torch.cuda.empty_cache()
+    cuda = torch.device('cuda:0')
 #print(torch.cuda.memory_allocated(0))
 #print(torch.cuda.memory_reserved(0))
-cuda = torch.device('cuda:0')
 
 
 def train_DN_model(model, train_loader, loss, optimizer, num_epochs, valid_loader, scheduler=None):
@@ -135,16 +137,16 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
             s_y = s_y.long().to(device)
             e_x = e_x.to(device)
 
-            domain_label = torch.zeros(len(s_y)).long().to(device)
-            s_class, s_domain = model(s_x)
+            domain_label = torch.zeros(len(s_y)).to(device)
+            s_class, s_domain, _ = model(s_x)
             s_class = s_class.to(device)
             s_domain = s_domain.to(device)
             #print(s_class.shape[1])
             #print(s_y)
             s_loss = lossClass(s_class, s_y) + lossDomain(s_domain, domain_label)
 
-            domain_label = torch.ones(len(e_x)).long().to(device)
-            _, e_domain = model(e_x)
+            domain_label = torch.ones(len(e_x)).to(device)
+            _, e_domain, _ = model(e_x)
             e_domain = e_domain.to(device)
             e_loss = lossDomain(e_domain, domain_label)
 
@@ -168,6 +170,8 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
                 # validation step
                 validLosses = []
                 validAccuracies = []
+                validFeaturesSim = []
+                validFeaturesExp = []
                 with torch.no_grad():
                     model.eval()
                     val_sim_iter = iter(val_sim_loader)
@@ -182,15 +186,15 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
 
                         vs_y = vs_y.long().flatten()
 
-                        vdomain_label = torch.zeros(len(vs_y)).long().to(device)
-                        vs_class, vs_domain = model(vs_x)
+                        vdomain_label = torch.zeros(len(vs_y)).to(device)
+                        vs_class, vs_domain, vs_feature = model(vs_x)
                         vs_class = vs_class.to(device)
                         vs_domain = vs_domain.to(device)
                         #print(s_class)
                         vs_loss = lossClass(vs_class, vs_y) + lossDomain(vs_domain, vdomain_label)
 
-                        vdomain_label = torch.ones(len(ve_x)).long().to(device)
-                        _, ve_domain = model(ve_x)
+                        vdomain_label = torch.ones(len(ve_x)).to(device)
+                        _, ve_domain, ve_feature = model(ve_x)
                         ve_domain = ve_domain.to(device)
                         ve_loss = lossDomain(ve_domain, vdomain_label)
 
@@ -201,6 +205,19 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
 
                         validLosses.append(float(vrunning_loss))
                         validAccuracies.append(vrunning_acc.cpu())
+
+                        validFeaturesSim.append(vs_feature[:,10].detach().cpu().numpy())
+                        validFeaturesExp.append(ve_feature[:,10].detach().cpu().numpy())
+
+
+                bins = np.linspace(-0.1,0.1,2000)
+                validFeaturesSim = np.concatenate(validFeaturesSim)
+                validFeaturesExp = np.concatenate(validFeaturesExp)
+                plt.hist(validFeaturesSim, bins, color='#0504aa',
+                        alpha=0.7, rwidth=1.0, density=True, label = 'sim')
+                plt.hist(validFeaturesExp, bins, color='#9e001a',
+                        alpha=0.7, rwidth=1.0, density=True, label = 'exp')
+                plt.show()
 
                 loss_valid = np.mean(np.array(validLosses))
                 accuracy_valid = np.mean(np.array(validAccuracies))
@@ -231,9 +248,10 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
         plt.ylabel('Loss')
         plt.show()
 
+        
 
         model.eval()
-        torch.save(model.state_dict(), 'tempModel' + dataSetType + '.pt')
+        torch.save(model.state_dict(), os.path.join('nndata','nndata/tempModel' + dataSetType + '.pt'))
         model.train()
     
     model.eval()
@@ -246,11 +264,11 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
     
     batch_size = 8192*2
 
-    dftCorr = pandas.read_parquet(simulation_path).sample(frac=1.0).reset_index(drop=True) # shuffling
+    dftCorr = pandas.read_parquet(os.path.join("nndata",simulation_path)).sample(frac=1.0).reset_index(drop=True) # shuffling
     dataTable = dftCorr.sample(frac=0.8).sort_index()
     validTable = dftCorr.drop(dataTable.index)
 
-    dftCorrExp = pandas.read_parquet(experiment_path).sample(frac=1.0).reset_index(drop=True) # shuffling
+    dftCorrExp = pandas.read_parquet(os.path.join("nndata",experiment_path)).sample(frac=1.0).reset_index(drop=True) # shuffling
     dataTableExp = dftCorrExp.sample(frac=0.8).sort_index()
     validTableExp = dftCorrExp.drop(dataTableExp.index)
     
@@ -296,10 +314,11 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
     #weights = np.array([5.13, 1.54 ,0.41, 31.3 ,1]).astype(np.float32)
     loss = nn.CrossEntropyLoss(torch.tensor(weights)).to(device)
     #loss = nn.MSELoss()
-    loss_domain = nn.NLLLoss()
+    #loss_domain = nn.NLLLoss()
+    loss_domain = nn.BCELoss()
 
     #optimizer = optim.SGD(nn_model.parameters(), lr=0.1, momentum=0.9, weight_decay=0.05)
-    optimizer = optim.Adam(nn_model.parameters(), lr=0.00001, betas=(0.5, 0.9), weight_decay=0.0005)
+    optimizer = optim.AdamW(nn_model.parameters(), lr=0.00001, betas=(0.5, 0.9), weight_decay=0.0005)
     #optimizer = optim.Adam(nn_model.parameters(), lr=0.00003, weight_decay=0.05)
 
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
@@ -311,7 +330,7 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
 
     torch.onnx.export(nn_model.cpu(),                                # model being run
                   torch.randn(1, input_dim),    # model input (or a tuple for multiple inputs)
-                  "tempModel.onnx",           # where to save the model (can be a file or file-like object)
+                  os.path.join("nndata","tempModel.onnx"),           # where to save the model (can be a file or file-like object)
                   input_names = ["input"],              # the model's input names
                   output_names = ["output"])            # the model's output names
 
@@ -324,7 +343,7 @@ print("start_train_python")
 
 dataSetType = 'NewKIsUsed'
 dataManager = DataManager()
-#dataManager.manageDataset("train_dann", dataSetType)
+dataManager.manageDataset("train_dann", dataSetType)
 
-train_NN('simu1' + dataSetType + '.parquet', 'expu1' + dataSetType + '.parquet')
+train_NN(os.path.join("nndata",'simu1' + dataSetType + '.parquet'),os.path.join("nndata",'expu1' + dataSetType + '.parquet'))
 
