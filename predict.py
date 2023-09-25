@@ -173,9 +173,13 @@ def draw_probabilities_vs_parameter(probs, tables, column):
 
 
 def draw_parameter_spread(tables, column):
-    class_hist0 = np.sqrt(np.absolute(tables[1][column].to_numpy()))
-    class_hist1 = np.sqrt(np.absolute(tables[3][column].to_numpy()))
+    #class_hist0 = np.sqrt(np.absolute(tables[1][column].to_numpy()))
+    #class_hist1 = np.sqrt(np.absolute(tables[3][column].to_numpy()))
     class_hist2 = np.sqrt(np.absolute(tables[4][column].to_numpy()))
+    
+    class_hist0 = tables[1][column].to_numpy()
+    class_hist1 = tables[3][column].to_numpy()
+    class_hist2 = tables[4][column].to_numpy()
 
 
     class_histAll = np.concatenate((class_hist0,class_hist1),axis=0)
@@ -282,11 +286,11 @@ def analyseOutput(predFileName, experiment_path):
     mask2 = []
     for i in range(lrange):
         cN = list(pT.columns)
-        mask.append((dftCorrExp['beta']<11.2) & (dftCorrExp['beta']>-0.55))
+        mask.append((dftCorrExp['beta']<1.2) & (dftCorrExp['beta']>0.55))
         mask2.append((dftCorrExp['beta']<1.2) & (dftCorrExp['beta']>0.55))
         for j in range(lrange-1):
             mask2[i] = mask2[i]# & (dftCorrExp['pid'] == i)
-            mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.0)
+            mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.3)
         tablesPClasses.append(pT.loc[mask2[i]].copy())
         tablesClasses.append(dftCorrExp.loc[mask[i]].copy())
         tablesClasses2.append(dftCorrExp.loc[mask2[i]].copy())

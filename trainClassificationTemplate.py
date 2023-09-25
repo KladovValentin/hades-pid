@@ -268,8 +268,16 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
 
     nClasses = dftCorr[list(dftCorr.columns)[-1]].nunique()
     print(nClasses)
-    valueCounts = dftCorr[list(dftCorr.columns)[-1]].value_counts()
+
+    valueCounts = dftCorr[list(dftCorr.columns)[-1]].value_counts(normalize=True)
     print(valueCounts)
+    indicesWeights = valueCounts.index.to_numpy()
+    valuesWeights = valueCounts.values
+    weights = np.zeros(nClasses).astype(np.float32)
+    for i in range(nClasses):
+        weights[indicesWeights[i]] = 1./nClasses * 1./valuesWeights[i]
+    print(weights)
+    
     print(dftCorr.isnull().sum())
     input_dim = train_dataset[0][0].shape[0]
 
@@ -280,7 +288,7 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
     nn_model = DANN(input_dim=input_dim, output_dim=nClasses).type(torch.FloatTensor).to(device)
 
     #weights = np.array([0.7195969431474389,0.8441318995839315,1.9450211571985525,8.533961043270507,0.5572980154693978]).astype(np.float32)
-    weights = np.array([0.6738684703630756,2.49427438150839936,2.2488611656428765,24.62766199493874,0.9810510497144537]).astype(np.float32)
+    #weights = np.array([0.6738684703630756,0.49427438150839936,2.2488611656428765,24.62766199493874,0.9810510497144537]).astype(np.float32)
     #weights = np.array([1.33, 1.64, 2.98, 60, 1]).astype(np.float32)
     #weights = np.array([1.776, 1.7275, 1.699, 33.7245, 0.582]).astype(np.float32)
 
@@ -291,7 +299,7 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
     loss_domain = nn.NLLLoss()
 
     #optimizer = optim.SGD(nn_model.parameters(), lr=0.1, momentum=0.9, weight_decay=0.05)
-    optimizer = optim.Adam(nn_model.parameters(), lr=0.00001, betas=(0.5, 0.9), weight_decay=0.0000)
+    optimizer = optim.Adam(nn_model.parameters(), lr=0.00001, betas=(0.5, 0.9), weight_decay=0.0005)
     #optimizer = optim.Adam(nn_model.parameters(), lr=0.00003, weight_decay=0.05)
 
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
@@ -316,7 +324,7 @@ print("start_train_python")
 
 dataSetType = 'NewKIsUsed'
 dataManager = DataManager()
-dataManager.manageDataset("train_dann", dataSetType)
+#dataManager.manageDataset("train_dann", dataSetType)
 
 train_NN('simu1' + dataSetType + '.parquet', 'expu1' + dataSetType + '.parquet')
 
