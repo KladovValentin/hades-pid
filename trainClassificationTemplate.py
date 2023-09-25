@@ -251,7 +251,7 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
         
 
         model.eval()
-        torch.save(model.state_dict(), os.path.join('nndata','nndata/tempModel' + dataSetType + '.pt'))
+        torch.save(model.state_dict(), os.path.join('nndata','tempModel' + dataSetType + '.pt'))
         model.train()
     
     model.eval()
@@ -343,7 +343,7 @@ print("start_train_python")
 
 dataSetType = 'NewKIsUsed'
 dataManager = DataManager()
-dataManager.manageDataset("train_dann", dataSetType)
+#dataManager.manageDataset("train_dann", dataSetType)
 
-train_NN(os.path.join("nndata",'simu1' + dataSetType + '.parquet'),os.path.join("nndata",'expu1' + dataSetType + '.parquet'))
+train_NN('simu1' + dataSetType + '.parquet','expu1' + dataSetType + '.parquet')
 

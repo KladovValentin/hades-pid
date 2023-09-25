@@ -28,7 +28,7 @@ torch.cuda.empty_cache()
 def loadModel(input_dim, nClasses):
     nn_model = DANN(input_dim=input_dim, output_dim=nClasses).type(torch.FloatTensor)
     nn_model.type(torch.FloatTensor)
-    nn_model.load_state_dict(torch.load('tempModel' + dataSetType + '.pt'))
+    nn_model.load_state_dict(torch.load(os.path.join('nndata','tempModel' + dataSetType + '.pt')))
     #nn_model.eval()
     return nn_model.to(device)
 
@@ -315,7 +315,7 @@ def analyseOutput(predFileName, experiment_path):
         mask.append((dftCorrExp['beta']<1.2) & (dftCorrExp['beta']>0.55))
         mask2.append((dftCorrExp['beta']<1.2) & (dftCorrExp['beta']>0.55))
         for j in range(lrange-1):
-            mask2[i] = mask2[i]# & (dftCorrExp['pid'] == i)
+            mask2[i] = mask2[i] & (dftCorrExp['pid'] == i)
             mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.3)
         tablesPClasses.append(pT.loc[mask2[i]].copy())
         tablesClasses.append(dftCorrExp.loc[mask[i]].copy())
@@ -328,10 +328,10 @@ def analyseOutput(predFileName, experiment_path):
 
     print(tablesClasses2)
     print(tablesPClasses)
-    #draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
+    draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
     #draw_probabilities_spread(tablesPClasses[1],tablesPClasses[1])
     #draw_confusion_matrix(np.array(mask),np.array(mask2))
-    draw_parameter_spread(tablesClasses,'mass2')
+    #draw_parameter_spread(tablesClasses,'mass2')
     #draw_parameter_spread(tablesClasses,'tof')
     #draw_parameter_spread(tablesClasses2,'mass2')
     #plt.show()
@@ -379,8 +379,8 @@ dataSetType = 'NewKIsUsed'
 #print("start python predict")
 #predict('expu1' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
 #predict('simu1' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
-analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
-#analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet')
+#analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
+analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet')
 
 analyseExpAndSim('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet', 'predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 
