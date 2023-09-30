@@ -43,7 +43,7 @@ class DataManager():
     def __init__(self) -> None:
         self.poorColumnValues = [('tofdedx',-1)]
         self.pidsToSelect = [8,9,11,12,14]
-        self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch','mass2']
+        self.features = ['momentum','charge','theta','mdcdedx','tofdedx','tof','distmeta','beta','metamatch','mass2']
     
 
     def prepareTable(self, datF):
@@ -67,8 +67,8 @@ class DataManager():
         dfn = df.to_numpy()
 
         x = dfn[:,:].astype(np.float32)
-        mean = np.array( [np.mean(x[:,j]) for j in range(x.shape[1])] )
-        std  = np.array( [np.std( x[:,j]) for j in range(x.shape[1])] )
+        mean = np.array( [np.mean(x[:,j]) for j in range(x.shape[1]-1)] )
+        std  = np.array( [np.std( x[:,j]) for j in range(x.shape[1]-1)] )
         
         #__ if you have bad data sometimes in one of the columns - 
         # - you can calculate mean and std without these bad entries
@@ -156,7 +156,7 @@ class DataManager():
             for i in range(len(self.pidsToSelect)):
                 ttables.append(setTable.loc[setTable['pid']==self.pidsToSelect[i]].copy())
                 ttables[i]['pid'] = i
-            #ttables[1] = ttables[1].sample(frac=0.0).copy()
+            ttables[2] = ttables[2].sample(frac=0.5).copy()
             try:
                 fullSetTable = pandas.concat(ttables, verify_integrity=True).sort_index()
             except ValueError as e:
@@ -196,6 +196,7 @@ class DataManager():
         setTable = self.getDataset("", "data").sample(frac=1.0).sort_index().reset_index(drop=True)
         setTable = setTable[[c for c in setTable if c not in ['pid']] + ['pid']]
         dftCorr = dftCorr[[c for c in dftCorr if c not in ['pid']] + ['pid']]
+        print("ASDSADSADASDSADASDSADASDSADASDASDSA")
         print(dftCorr)
         #self.prepareTable(dftCorr)
         pq.write_table(pa.Table.from_pandas(dftCorr), os.path.join("nndata",'simu' + dataSetType + '.parquet'))
@@ -217,9 +218,6 @@ class DataManager():
         mean1, std1 = self.meanAndStdTable(pandas.concat([dftCorr,setTable], ignore_index=True))
         print(mean1)
         print(std1)
-        print(dftCorr)
-
-        print(dftCorr.loc[dftCorr['pid']==3])
 
         pq.write_table(pa.Table.from_pandas(dftCorr), os.path.join("nndata",'simu1' + dataSetType + '.parquet'))
         pq.write_table(pa.Table.from_pandas(setTable), os.path.join("nndata",'expu1' + dataSetType + '.parquet'))

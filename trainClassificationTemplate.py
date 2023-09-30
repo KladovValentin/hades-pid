@@ -27,6 +27,8 @@ if device == "cuda:0":
 #print(torch.cuda.memory_allocated(0))
 #print(torch.cuda.memory_reserved(0))
 
+dataSetType = 'NewKIsUsed'
+
 
 def train_DN_model(model, train_loader, loss, optimizer, num_epochs, valid_loader, scheduler=None):
     print("start model nn train")
@@ -137,32 +139,48 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
             s_y = s_y.long().to(device)
             e_x = e_x.to(device)
 
-            domain_label = torch.zeros(len(s_y)).to(device)
+            domain_label = torch.zeros(len(s_y)).long().to(device)
             s_class, s_domain, _ = model(s_x)
             s_class = s_class.to(device)
             s_domain = s_domain.to(device)
-            #print(s_class.shape[1])
-            #print(s_y)
-            s_loss = lossClass(s_class, s_y) + lossDomain(s_domain, domain_label)
 
-            domain_label = torch.ones(len(e_x)).to(device)
+            domain_labele = torch.ones(len(e_x)).long().to(device)
             _, e_domain, _ = model(e_x)
             e_domain = e_domain.to(device)
-            e_loss = lossDomain(e_domain, domain_label)
 
-            running_loss = s_loss + e_loss
+            running_loss = lossClass(s_class, s_y) + lossDomain(s_domain, domain_label) + lossDomain(e_domain, domain_labele)
+
+            e_domain_copy = e_domain.clone().detach()
+            s_domain_copy = s_domain.clone().detach()
+            s_class_copy = s_class.clone().detach()
+            
+            #print(indicesD.cpu(), domain_labele.cpu())
 
             optimizer.zero_grad()
             running_loss.backward()
             optimizer.step()
 
-            indices = torch.max(s_class, 1)[1]
+            e_domain_copy1 = e_domain.clone().detach()
+            if not torch.equal(e_domain_copy1, e_domain_copy):
+                print("prediction changed somehow even without grads")
+            
+            indicesD = torch.max(s_domain_copy, 1)[1]
+            running_accD = torch.sum(indicesD.cpu()==domain_label.cpu())/(len(e_x) + len(s_x))
+
+            indicesD1 = torch.max(e_domain_copy, 1)[1]
+            running_accD += torch.sum(indicesD1.cpu()==domain_labele.cpu())/(len(e_x) + len(s_x))
+
+            #print(indicesD.cpu(), domain_labele.cpu())
+
+            indices = torch.max(s_class_copy, 1)[1]
             running_acc = torch.sum(indices.cpu()==s_y.cpu())/s_y.cpu().shape[0]
+
+            #print(e_domain.cpu())
 
             train_history.append(1-running_acc)
             loss_history.append(float(running_loss))
 
-            tepoch.set_postfix(loss=float(running_loss), acc=float(running_acc)*100)
+            tepoch.set_postfix(loss=float(running_loss), acc=float(running_acc)*100, accD=float(running_accD)*100)
 
             perc10 = (((len(loss_history)+1)*1)//len_dataloader)
             if ( perc10>perc10p):
@@ -186,14 +204,14 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
 
                         vs_y = vs_y.long().flatten()
 
-                        vdomain_label = torch.zeros(len(vs_y)).to(device)
+                        vdomain_label = torch.zeros(len(vs_y)).long().to(device)
                         vs_class, vs_domain, vs_feature = model(vs_x)
                         vs_class = vs_class.to(device)
                         vs_domain = vs_domain.to(device)
                         #print(s_class)
                         vs_loss = lossClass(vs_class, vs_y) + lossDomain(vs_domain, vdomain_label)
 
-                        vdomain_label = torch.ones(len(ve_x)).to(device)
+                        vdomain_label = torch.ones(len(ve_x)).long().to(device)
                         _, ve_domain, ve_feature = model(ve_x)
                         ve_domain = ve_domain.to(device)
                         ve_loss = lossDomain(ve_domain, vdomain_label)
@@ -294,10 +312,13 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
     weights = np.zeros(nClasses).astype(np.float32)
     for i in range(nClasses):
         weights[indicesWeights[i]] = 1./nClasses * 1./valuesWeights[i]
+    weights[3] = weights[3]
+    weights[2] = weights[2]
     print(weights)
     
     print(dftCorr.isnull().sum())
     input_dim = train_dataset[0][0].shape[0]
+    print("input dim is   ", input_dim)
 
     del validTable, valid_dataset, dftCorr, batch_size
     del exp_dataset, dftCorrExp, exp_valset, dataTableExp, validTableExp
@@ -314,8 +335,8 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
     #weights = np.array([5.13, 1.54 ,0.41, 31.3 ,1]).astype(np.float32)
     loss = nn.CrossEntropyLoss(torch.tensor(weights)).to(device)
     #loss = nn.MSELoss()
-    #loss_domain = nn.NLLLoss()
-    loss_domain = nn.BCELoss()
+    loss_domain = nn.NLLLoss()
+    #loss_domain = nn.BCELoss()
 
     #optimizer = optim.SGD(nn_model.parameters(), lr=0.1, momentum=0.9, weight_decay=0.05)
     optimizer = optim.AdamW(nn_model.parameters(), lr=0.00001, betas=(0.5, 0.9), weight_decay=0.0005)
@@ -326,11 +347,11 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
 
     print("prepared to train nn")
     #train_DN_model(nn_model, train_loader, loss, optimizer, 10, valid_loader, scheduler = scheduler)
-    train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 1, scheduler=scheduler)
+    train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 2, scheduler=scheduler)
 
     torch.onnx.export(nn_model.cpu(),                                # model being run
                   torch.randn(1, input_dim),    # model input (or a tuple for multiple inputs)
-                  os.path.join("nndata","tempModel.onnx"),           # where to save the model (can be a file or file-like object)
+                  os.path.join("nndata",'tempModel' + dataSetType + '.onnx'),           # where to save the model (can be a file or file-like object)
                   input_names = ["input"],              # the model's input names
                   output_names = ["output"])            # the model's output names
 
@@ -341,7 +362,6 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
 
 print("start_train_python")
 
-dataSetType = 'NewKIsUsed'
 dataManager = DataManager()
 #dataManager.manageDataset("train_dann", dataSetType)
 
