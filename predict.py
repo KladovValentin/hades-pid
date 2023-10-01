@@ -164,8 +164,8 @@ def draw_probabilities_vs_parameter(probs, tables, column):
     print(bin_averages[0].shape)
 
 
-    plt.errorbar((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[0], yerr=bin_rms[0], fmt="o-", color='#0504aa', label = '$\pi$')
     plt.errorbar((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[1], yerr=bin_rms[1], fmt="o-", color='#228B22', label = '$K$')
+    plt.errorbar((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[0], yerr=bin_rms[0], fmt="o-", color='#0504aa', label = '$\pi$')
     plt.errorbar((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[2], yerr=bin_rms[2], fmt="o-", color='#cf4c00', label = '$p$')
 
 
@@ -227,18 +227,20 @@ def draw_confusion_matrix(maskPrediction,maskTarget):
 
 
 def draw_2d_param_spread(tables, column1, column2):
-    class_hist0 = [tables[0][column1].to_numpy(),tables[0][column2].to_numpy()]
+    class_hist0 = [tables[1][column1].to_numpy(),tables[1][column2].to_numpy()]
     class_hist1 = [tables[4][column1].to_numpy(),tables[4][column2].to_numpy()]
-    class_hist2 = [tables[2][column1].to_numpy(),tables[2][column2].to_numpy()]
+    class_hist2 = [tables[3][column1].to_numpy(),tables[3][column2].to_numpy()]
 
     x = np.linspace(0,5,100)
-    y = 1./np.sqrt(1.+(0.185**2)/(x**2)) * (1.-0.02*np.exp(-((x-0.55)*(x-0.55))/2./(0.3*0.3)))
+    y = 1./np.sqrt(1.+(0.195**2)/(x**2)) * (1.-0.02*np.exp(-((x-0.55)*(x-0.55))/2./(0.3*0.3)))
     plt.plot(x,y,'r')
+    y1 = 1./np.sqrt(1.+(0.685**2)/(x**2)) * (1.-0.02*np.exp(-((x-0.95)*(x-0.95))/2./(0.3*0.3)))
+    plt.plot(x,y1,'r')
 
-    #h0 = plt.hist2d(class_hist1[0],class_hist1[1], bins = 300, cmin=5, cmap=plt.cm.jet)
+    h0 = plt.hist2d(class_hist1[0],class_hist1[1], bins = 300, cmin=5, cmap=plt.cm.jet)
     h1 = plt.hist2d(class_hist0[0],class_hist0[1], bins = 300, cmin=5, cmap=plt.cm.jet)
     h2 = plt.hist2d(class_hist2[0],class_hist2[1], bins = 300, cmin=5, cmap=plt.cm.jet)
-    plt.colorbar(h1[3])
+    plt.colorbar(h2[3])
     #plt.hist2d(class_hist2[0],class_hist2[1], bins = 300, cmap = "RdYlBu_r", norm = colors.LogNorm())
     #plt.ylim([0,1.5])
     plt.show()
@@ -359,10 +361,10 @@ def analyseOutput(predFileName, experiment_path):
 
     print(tablesClasses2)
     print(tablesPClasses)
-    #draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
+    draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
     #draw_probabilities_spread(tablesPClasses[1],tablesPClasses[1])
-    #draw_confusion_matrix(np.array(mask),np.array(mask2))
-    draw_parameter_spread(tablesClasses,'mass2')
+    draw_confusion_matrix(np.array(mask),np.array(mask2))
+    #draw_parameter_spread(tablesClasses,'mass2')
     #draw_parameter_spread(tablesClasses,'tof')
     #draw_parameter_spread(tablesClasses2,'mass2')
     #plt.show()
@@ -414,10 +416,10 @@ def predict(fName, oName):
 dataSetType = 'NewKIsUsed'
 
 #print("start python predict")
-#predict('expu1' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
-#predict('simu1' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
-analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
-#analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet')
+predict('expu1' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
+predict('simu1' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
+#analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
+analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet')
 
 #analyseExpAndSim('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet', 'predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 

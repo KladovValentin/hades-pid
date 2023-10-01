@@ -312,8 +312,8 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
     weights = np.zeros(nClasses).astype(np.float32)
     for i in range(nClasses):
         weights[indicesWeights[i]] = 1./nClasses * 1./valuesWeights[i]
-    weights[3] = weights[3]
-    weights[2] = weights[2]
+    weights[3] = weights[3]/1.5
+    weights[2] = weights[2]/1.5
     print(weights)
     
     print(dftCorr.isnull().sum())
@@ -339,7 +339,7 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
     #loss_domain = nn.BCELoss()
 
     #optimizer = optim.SGD(nn_model.parameters(), lr=0.1, momentum=0.9, weight_decay=0.05)
-    optimizer = optim.AdamW(nn_model.parameters(), lr=0.00001, betas=(0.5, 0.9), weight_decay=0.0005)
+    optimizer = optim.AdamW(nn_model.parameters(), lr=0.00001, betas=(0.5, 0.9), weight_decay=0.001)
     #optimizer = optim.Adam(nn_model.parameters(), lr=0.00003, weight_decay=0.05)
 
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
