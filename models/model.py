@@ -75,10 +75,10 @@ class DANN(nn.Module):
             nn.Linear(512, output_dim)
         )
         self.domain_classifier = nn.Sequential(
-            nn.Linear(128, 128, bias=True),
+            nn.Linear(128, 256, bias=True),
             #nn.BatchNorm1d(256),
             nn.LeakyReLU(inplace=True),
-            nn.Linear(128, 128),
+            nn.Linear(256, 128),
             #nn.BatchNorm1d(128),
             #torch.nn.Sigmoid()
             nn.LeakyReLU(inplace=True),

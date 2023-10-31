@@ -43,7 +43,7 @@ class DataManager():
     def __init__(self) -> None:
         self.poorColumnValues = [('tofdedx',-1)]
         self.pidsToSelect = [8,9,11,12,14]
-        self.features = ['momentum','charge','theta','mdcdedx','tofdedx','tof','distmeta','beta','metamatch','mass2']
+        self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch','mass2']
     
 
     def prepareTable(self, datF):

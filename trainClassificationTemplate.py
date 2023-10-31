@@ -347,7 +347,7 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
 
     print("prepared to train nn")
     #train_DN_model(nn_model, train_loader, loss, optimizer, 10, valid_loader, scheduler = scheduler)
-    train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 2, scheduler=scheduler)
+    train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 1, scheduler=scheduler)
 
     torch.onnx.export(nn_model.cpu(),                                # model being run
                   torch.randn(1, input_dim),    # model input (or a tuple for multiple inputs)
@@ -362,7 +362,7 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
 
 print("start_train_python")
 
-dataManager = DataManager()
+#dataManager = DataManager()
 #dataManager.manageDataset("train_dann", dataSetType)
 
 train_NN('simu1' + dataSetType + '.parquet','expu1' + dataSetType + '.parquet')

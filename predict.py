@@ -138,7 +138,6 @@ def draw_probabilities_vs_parameter(probs, tables, column):
     # Loop through data to accumulate sums and counts within each bin
     for k in range(3):
         bin_indices = np.digitize(x[k], bin_edges) - 1 
-        print(bin_indices[bin_indices < 10])
         bin_sums = np.bincount(bin_indices, weights=y[k], minlength=num_bins)
         bin_sums2 = np.bincount(bin_indices, weights=y[k]*y[k], minlength=num_bins)
         bin_counts = np.bincount(bin_indices, minlength=num_bins)
@@ -187,8 +186,8 @@ def draw_parameter_spread(tables, column):
     #class_hist1 = np.sqrt(np.absolute(tables[2][column].to_numpy()))
     #class_hist2 = np.sqrt(np.absolute(tables[4][column].to_numpy()))
     
-    class_hist0 = tables[0][column].to_numpy()
-    class_hist1 = tables[2][column].to_numpy()
+    class_hist0 = tables[1][column].to_numpy()
+    class_hist1 = tables[3][column].to_numpy()
     class_hist2 = tables[4][column].to_numpy()
 
 
@@ -361,10 +360,10 @@ def analyseOutput(predFileName, experiment_path):
 
     print(tablesClasses2)
     print(tablesPClasses)
-    draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
+    #draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
     #draw_probabilities_spread(tablesPClasses[1],tablesPClasses[1])
-    draw_confusion_matrix(np.array(mask),np.array(mask2))
-    #draw_parameter_spread(tablesClasses,'mass2')
+    #draw_confusion_matrix(np.array(mask),np.array(mask2))
+    draw_parameter_spread(tablesClasses,'mass2')
     #draw_parameter_spread(tablesClasses,'tof')
     #draw_parameter_spread(tablesClasses2,'mass2')
     #plt.show()
@@ -416,10 +415,10 @@ def predict(fName, oName):
 dataSetType = 'NewKIsUsed'
 
 #print("start python predict")
-predict('expu1' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
-predict('simu1' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
-#analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
-analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet')
+#predict('expu1' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
+#predict('simu1' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
+analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
+#analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet')
 
 #analyseExpAndSim('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet', 'predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 
