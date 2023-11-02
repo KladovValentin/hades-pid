@@ -55,7 +55,12 @@ def checkDistributions():
 
 def makePredicionList(experiment_path, savePath):
     dftCorrExp = pandas.read_parquet(os.path.join("nndata",experiment_path))
+
+    print(dftCorrExp.iloc[0])
+    
     dftCorrExp = dataManager.normalizeDataset(dftCorrExp)
+
+    print(dftCorrExp.iloc[0])
 
     #class1p = dftCorrExp.loc[(dftCorrExp['pid']==1)].copy()
     #restt = dftCorrExp.drop(class1p.index)
@@ -74,6 +79,10 @@ def makePredicionList(experiment_path, savePath):
     #load nn and predict
     nn_model = loadModel(input_dim, nClasses)
     nn_model.eval()
+
+    inputTens = torch.tensor(np.array([exp_dataset[0][0],exp_dataset[0][1]]))
+    print(inputTens)
+    print(nn_model(inputTens)[0].softmax(dim=1).detach().numpy())
 
     dat_list = []
     exp_iter = iter(exp_dataLoader)
