@@ -79,10 +79,10 @@ def makePredicionList(experiment_path, savePath):
     #load nn and predict
     nn_model = loadModel(input_dim, nClasses)
     nn_model.eval()
-
-    inputTens = torch.tensor(np.array([exp_dataset[0][0],exp_dataset[0][1]]))
+    
+    inputTens = torch.tensor(np.array([exp_dataset[0][0],exp_dataset[1][0]])).to(device)
     print(inputTens)
-    print(nn_model(inputTens)[0].softmax(dim=1).detach().numpy())
+    print(nn_model(inputTens)[0].softmax(dim=1).detach().cpu().numpy())
 
     dat_list = []
     exp_iter = iter(exp_dataLoader)
@@ -95,7 +95,7 @@ def makePredicionList(experiment_path, savePath):
         #inputArr = np.array([[-0.424882, -1.417659, -1.180430,  0.007431, -0.053383,  0.000000,  0.086087,  0.376829, -0.008964,   0.091145, -0.346358],
         #                     [-0.169018, -1.417659,  2.259818,  1.890011,  0.408186,  0.125931, -0.047164,  0.560324, -0.004500,  -0.314674, -0.249043]]).astype(np.float32)
         #inputTens = torch.tensor(inputArr)
-        #print(nn_model(inputTens)[0].softmax(dim=1).detach().numpy())
+        #print(nn_model(inputTens)[0].softmax(dim=1).detach().cpu().numpy())
         e_class, e_domain, e_feature = nn_model(ve_x)
         e_class = e_class.softmax(dim=1).detach().cpu().numpy()
         e_feature = e_feature[:,0:10].detach().cpu().numpy()
