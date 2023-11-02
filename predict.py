@@ -24,6 +24,9 @@ import os
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 torch.cuda.empty_cache()
 
+dataSetType = 'NewKIsUsed'
+dataManager = DataManager(dataSetType)
+
 
 def loadModel(input_dim, nClasses):
     nn_model = DANN(input_dim=input_dim, output_dim=nClasses).type(torch.FloatTensor)
@@ -52,6 +55,7 @@ def checkDistributions():
 
 def makePredicionList(experiment_path, savePath):
     dftCorrExp = pandas.read_parquet(os.path.join("nndata",experiment_path))
+    dftCorrExp = dataManager.normalizeDataset(dftCorrExp)
 
     #class1p = dftCorrExp.loc[(dftCorrExp['pid']==1)].copy()
     #restt = dftCorrExp.drop(class1p.index)
@@ -412,11 +416,11 @@ def predict(fName, oName):
 #dataManager = DataManager()
 #dataManager.manageDataset("test")
 
-dataSetType = 'NewKIsUsed'
+#dataSetType = 'NewKIsUsed'
 
 #print("start python predict")
-#predict('expu1' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
-#predict('simu1' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
+predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
+predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
 analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 #analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet')
 

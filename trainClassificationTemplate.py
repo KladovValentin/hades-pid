@@ -28,6 +28,7 @@ if device == "cuda:0":
 #print(torch.cuda.memory_reserved(0))
 
 dataSetType = 'NewKIsUsed'
+dataManager = DataManager(dataSetType)
 
 
 def train_DN_model(model, train_loader, loss, optimizer, num_epochs, valid_loader, scheduler=None):
@@ -269,7 +270,9 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
         
 
         model.eval()
+        model.cpu()
         torch.save(model.state_dict(), os.path.join('nndata','tempModel' + dataSetType + '.pt'))
+        model.to(device)
         model.train()
     
     model.eval()
@@ -277,16 +280,18 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
     return 1
 
 
-def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
+def train_NN(simulation_path, experiment_path):
     print("start nn training")
     
     batch_size = 8192*2
 
-    dftCorr = pandas.read_parquet(os.path.join("nndata",simulation_path)).sample(frac=1.0).reset_index(drop=True) # shuffling
+    dftCorr = pandas.read_parquet(os.path.join("nndata",simulation_path))
+    dftCorr = dataManager.normalizeDataset(dftCorr).sample(frac=1.0).reset_index(drop=True) # with shuffling
     dataTable = dftCorr.sample(frac=0.8).sort_index()
     validTable = dftCorr.drop(dataTable.index)
 
-    dftCorrExp = pandas.read_parquet(os.path.join("nndata",experiment_path)).sample(frac=1.0).reset_index(drop=True) # shuffling
+    dftCorrExp = pandas.read_parquet(os.path.join("nndata",experiment_path))
+    dftCorrExp = dataManager.normalizeDataset(dftCorrExp).sample(frac=1.0).reset_index(drop=True) # with shuffling
     dataTableExp = dftCorrExp.sample(frac=0.8).sort_index()
     validTableExp = dftCorrExp.drop(dataTableExp.index)
     
@@ -339,7 +344,7 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
     #loss_domain = nn.BCELoss()
 
     #optimizer = optim.SGD(nn_model.parameters(), lr=0.1, momentum=0.9, weight_decay=0.05)
-    optimizer = optim.AdamW(nn_model.parameters(), lr=0.00001, betas=(0.5, 0.9), weight_decay=0.001)
+    optimizer = optim.AdamW(nn_model.parameters(), lr=0.000007, betas=(0.5, 0.9), weight_decay=0.001)
     #optimizer = optim.Adam(nn_model.parameters(), lr=0.00003, weight_decay=0.05)
 
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
@@ -362,8 +367,7 @@ def train_NN(simulation_path="simu1.parquet", experiment_path="expu1.parquet"):
 
 print("start_train_python")
 
-#dataManager = DataManager()
-#dataManager.manageDataset("train_dann", dataSetType)
+dataManager.manageDataset("train_dann")
 
-train_NN('simu1' + dataSetType + '.parquet','expu1' + dataSetType + '.parquet')
+train_NN('simu' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 
