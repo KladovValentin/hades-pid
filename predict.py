@@ -98,7 +98,7 @@ def makePredicionList(experiment_path, savePath):
         #print(nn_model(inputTens)[0].softmax(dim=1).detach().numpy())
         e_class, e_domain, e_feature = nn_model(ve_x)
         e_class = e_class.softmax(dim=1).detach().cpu().numpy()
-        e_feature = e_feature[:,0:10].detach().cpu().numpy()
+        e_feature = e_feature[:,0:-1].detach().cpu().numpy()
         e_class = np.concatenate((e_class,e_feature),axis=1)
         dat_list.append(pandas.DataFrame(e_class))
 
@@ -125,13 +125,13 @@ def draw_probabilities_spread(outputs,selected):
     plt.show()
 
 def draw_probabilities_vs_parameter(probs, tables, column):
-    x =[np.sqrt(np.absolute(tables[0][column].to_numpy())),
-        np.sqrt(np.absolute(tables[2][column].to_numpy())),
-        np.sqrt(np.absolute(tables[4][column].to_numpy()))]
+    #x =[np.sqrt(np.absolute(tables[0][column].to_numpy())),
+    #    np.sqrt(np.absolute(tables[2][column].to_numpy())),
+    #    np.sqrt(np.absolute(tables[4][column].to_numpy()))]
     
-    #x =[tables[0][column].to_numpy(),
-    #    tables[2][column].to_numpy(),
-    #    tables[4][column].to_numpy()]
+    x =[tables[0][column].to_numpy(),
+        tables[2][column].to_numpy(),
+        tables[4][column].to_numpy()]
 
     cN = list(probs[0].columns)
     y = [probs[0][cN[0]].to_numpy(),
@@ -139,7 +139,7 @@ def draw_probabilities_vs_parameter(probs, tables, column):
          probs[4][cN[4]].to_numpy()]
 
     # Define bin edges and number of bins
-    bin_edges = np.linspace(0, 2, 151)
+    bin_edges = np.linspace(-1, 2, 151)
     num_bins = len(bin_edges)
 
 
@@ -150,7 +150,9 @@ def draw_probabilities_vs_parameter(probs, tables, column):
 
     # Loop through data to accumulate sums and counts within each bin
     for k in range(3):
-        bin_indices = np.digitize(x[k], bin_edges) - 1 
+        bin_indices = np.digitize(x[k], bin_edges) - 1
+        bin_indices = np.clip(bin_indices, 0, len(bin_edges) - 1) 
+        num_bins = len(bin_edges) - 1
         bin_sums = np.bincount(bin_indices, weights=y[k], minlength=num_bins)
         bin_sums2 = np.bincount(bin_indices, weights=y[k]*y[k], minlength=num_bins)
         bin_counts = np.bincount(bin_indices, minlength=num_bins)
@@ -175,18 +177,30 @@ def draw_probabilities_vs_parameter(probs, tables, column):
     print (((bin_edges[1:] + bin_edges[:-1]) / 2).shape)
     print(bin_averages[0].shape)
 
+    fig, ax = plt.subplots()
 
-    plt.errorbar((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[1], yerr=bin_rms[1], fmt="o-", color='#228B22', label = '$K$')
-    plt.errorbar((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[0], yerr=bin_rms[0], fmt="o-", color='#0504aa', label = '$\pi$')
-    plt.errorbar((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[2], yerr=bin_rms[2], fmt="o-", color='#cf4c00', label = '$p$')
+    #plt.errorbar((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[1], yerr=bin_rms[1], fmt="o-", color='#228B22', label = '$K$')
+    #plt.errorbar((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[0], yerr=bin_rms[0], fmt="o-", color='#0504aa', label = '$\pi$')
+    #plt.errorbar((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[2], yerr=bin_rms[2], fmt="o-", color='#cf4c00', label = '$p$')
+    ax.plot((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[1], color='#228B22', label = '$K$')
+    ax.fill_between((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[1] - bin_rms[1], bin_averages[1] + bin_rms[1], alpha=0.3, color='#228B22', label='')
+    ax.plot((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[0], color='#0504aa', label = '$\pi$')
+    ax.fill_between((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[0] - bin_rms[0], bin_averages[0] + bin_rms[0], alpha=0.3, color='#0504aa', label='')
+    ax.plot((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[2], color='#cf4c00', label = '$p$')
+    ax.fill_between((bin_edges[1:] + bin_edges[:-1]) / 2, bin_averages[2] - bin_rms[2], bin_averages[2] + bin_rms[2], alpha=0.3, color='#cf4c00', label='')
 
 
 
-    plt.xlabel("mass, GeV")
-    plt.ylabel("probability, %")
-    plt.title("probabilities for true particles' types (sim)")
+    ax.set_xlabel("$M^{2} [GeV^{2}]$")
+    ax.xaxis.set_label_coords(0.9, -0.07)
+    ax.set_xlim(-0.5, 1.5)
+    ax.set_ylabel("probability [%]")
+    ax.yaxis.set_label_coords(-0.07, 0.9)
+    ax.set_ylim(-0.05, 1.05)
+    #ax.set_title("probabilities for true particles' types (sim)")
 
-    legend = plt.legend(loc=[0.6,0.8])
+    legend = plt.legend(loc=[0.6,0.5])
+
     font = {'family': 'serif', 'size': 12, 'weight': 'normal'}
     for text in legend.get_texts():
         text.set_fontproperties(font)  # Set font properties for legend labels
@@ -390,6 +404,7 @@ def analyseExpAndSim(predFileNameSim, experiment_pathSim, predFileNameExp, exper
     dftS = pandas.read_parquet(os.path.join("nndata",experiment_pathSim))
     pTE = pandas.read_parquet(os.path.join("nndata",predFileNameExp))
     dftE = pandas.read_parquet(os.path.join("nndata",experiment_pathExp))
+    print(pTS)
 
     tablesPClassesS = []
     tablesPClassesE = []
@@ -401,13 +416,15 @@ def analyseExpAndSim(predFileNameSim, experiment_pathSim, predFileNameExp, exper
     #for i in range(lrange):
     mask.append((dftS['beta']<1.2) & (dftS['beta']>0.55))
     mask2.append((dftE['beta']<1.2) & (dftE['beta']>0.55))
-    tablesPClassesS.append(pTS.loc[mask[0]].copy())
-    tablesPClassesE.append(pTE.loc[mask2[0]].copy())
+    print(mask[0].shape[0])
+    print(pTS.shape[0])
+    tablesPClassesS.append(pTS.copy())
+    tablesPClassesE.append(pTE.copy())
 
-    tablesClassesS.append(dftS.loc[mask[0]].copy())
-    tablesClassesE.append(dftE.loc[mask2[0]].copy())
+    tablesClassesS.append(dftS.copy())
+    tablesClassesE.append(dftE.copy())
     
-    draw_feature_distribution(tablesPClassesS,tablesPClassesE)
+    #draw_feature_distribution(tablesPClassesS,tablesPClassesE)
     draw_initial_distribution(tablesClassesS,tablesClassesE)
 
 
@@ -428,11 +445,11 @@ def predict(fName, oName):
 #dataSetType = 'NewKIsUsed'
 
 #print("start python predict")
-predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
-predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
-analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
+#predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
+#predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
+#analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 #analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet')
 
-#analyseExpAndSim('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet', 'predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
+analyseExpAndSim('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet', 'predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 
 #plt.show()
