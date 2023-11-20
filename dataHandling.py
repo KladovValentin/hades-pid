@@ -38,7 +38,6 @@ def load_dataset(dataTable):
     return (x, y)
 
 
-
 class DataManager():
     def __init__(self,datasetType) -> None:
         self.dataSetType = datasetType
@@ -46,6 +45,34 @@ class DataManager():
         self.pidsToSelect = [8,9,11,12,14]
         self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch','mass2']
     
+
+    def compareInitialDistributions(self):
+        dftSim = pandas.read_parquet(os.path.join("nndata",'simu' + self.dataSetType + '.parquet'))
+        dftExp = pandas.read_parquet(os.path.join("nndata",'expu' + self.dataSetType + '.parquet'))
+
+        inputsLength = len(dftSim.columns)-1
+        class_histS = [dftSim[(list(dftSim.columns)[i])].to_numpy() for i in range(inputsLength)]
+        class_histE = [dftExp[(list(dftExp.columns)[i])].to_numpy() for i in range(inputsLength)]
+
+        bins = [np.arange(np.mean(class_histS[i]) - 4 * np.std(class_histS[i]), np.mean(class_histS[i]) + 4 * np.std(class_histS[i]) + 4*np.std(class_histS[i])/200,  4*np.std(class_histS[i])/200) for i in range(inputsLength)]
+
+        # Create a 3x3 grid of subplots
+        #fig, axes = plt.subplots(3, 4, figsize=(10, 8))
+
+        # Loop through the subplots and plot histograms
+        for i in range(inputsLength):
+            plt.hist(class_histS[i], bins[i], edgecolor='#0504aa', linewidth=2, fill=False, histtype='step',
+                     alpha=0.7, rwidth=1.0, density=True, label = 'sim')
+            plt.hist(class_histE[i], bins[i], edgecolor='#9e001a', linewidth=2, fill=False, histtype='step',
+                     alpha=0.7, rwidth=1.0, density=True, label = 'exp')
+            plt.title(list(dftSim.columns)[i])
+            plt.legend()
+            plt.show()
+        
+        #fig.suptitle('"Feature" distributions, 9/128, both train AND validation dataset', fontsize=16)
+
+        #plt.show()
+
 
     def prepareTable(self, datF):
         # make datasets equal sizes for each class out of n
@@ -124,28 +151,6 @@ class DataManager():
         setTable = pandas.concat(batches,ignore_index=True).reset_index(drop=True)
         del batches
         
-        """
-        tree = uproot.open(dataPath)
-        features = tree.keys()
-        sim = {key: [] for _, key in enumerate(features)}
-        if mod == "simLabel":
-            for feature in features:
-                MAX_EVENTS = 0
-                for f in glob.glob(simPath):
-                    t = uproot.open(f+":pid")
-                    if feature == "event_id":
-                        sim[feature].append(t[feature].array().to_numpy()+MAX_EVENTS)
-                        MAX_EVENTS += np.max(t[feature].array().to_numpy())
-                    else:
-                        sim[feature].append(t[feature].array().to_numpy())
-        else:
-            for feature in features:
-                sim[feature].append(tree[feature].array().to_numpy())
-
-        sim = {key: np.hstack(array) for key, array in sim.items()}
-        setTable  = pandas.DataFrame(data=np.vstack(list(sim.values())).T, columns=features)
-        del sim,tree
-        """
 
         selection = (setTable['charge']>-10) & (setTable['mass2']>-1.5) & (setTable['mass2']<2.5) & (setTable['momentum']>0.05) & (setTable['momentum']<5) & (setTable['mdcdedx']>0.1) & (setTable['mdcdedx']<50)
         setTable = setTable.loc[selection].copy()
@@ -158,7 +163,9 @@ class DataManager():
             for i in range(len(self.pidsToSelect)):
                 ttables.append(setTable.loc[setTable['pid']==self.pidsToSelect[i]].copy())
                 ttables[i]['pid'] = i
-            ttables[2] = ttables[2].sample(frac=0.5).copy()
+            #ttables[2] = ttables[2].sample(frac=0.3).copy()
+            #ttables[3] = ttables[3].sample(frac=0.3).copy()
+            #ttables[4] = ttables[4].sample(frac=0.5).copy()
             try:
                 fullSetTable = pandas.concat(ttables, verify_integrity=True).sort_index()
             except ValueError as e:
@@ -198,7 +205,6 @@ class DataManager():
         setTable = self.getDataset("", "data")#.sample(frac=1.0).sort_index().reset_index(drop=True)
         #setTable = setTable[[c for c in setTable if c not in ['pid']] + ['pid']]
         #dftCorr = dftCorr[[c for c in dftCorr if c not in ['pid']] + ['pid']]
-        print("ASDSADSADASDSADASDSADASDSADASDASDSA")
         print(dftCorr)
         #self.prepareTable(dftCorr)
         dftCorr = self.dropCols(dftCorr)

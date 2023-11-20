@@ -344,7 +344,7 @@ def train_NN(simulation_path, experiment_path):
     #loss_domain = nn.BCELoss()
 
     #optimizer = optim.SGD(nn_model.parameters(), lr=0.1, momentum=0.9, weight_decay=0.05)
-    optimizer = optim.AdamW(nn_model.parameters(), lr=0.000007, betas=(0.5, 0.9), weight_decay=0.001)
+    optimizer = optim.AdamW(nn_model.parameters(), lr=0.00001, betas=(0.5, 0.9), weight_decay=0.001)
     #optimizer = optim.Adam(nn_model.parameters(), lr=0.00003, weight_decay=0.05)
 
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
@@ -352,7 +352,7 @@ def train_NN(simulation_path, experiment_path):
 
     print("prepared to train nn")
     #train_DN_model(nn_model, train_loader, loss, optimizer, 10, valid_loader, scheduler = scheduler)
-    train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 1, scheduler=scheduler)
+    train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 2, scheduler=scheduler)
 
     torch.onnx.export(nn_model.cpu(),                                # model being run
                   torch.randn(1, input_dim),    # model input (or a tuple for multiple inputs)
@@ -369,5 +369,7 @@ print("start_train_python")
 
 dataManager.manageDataset("train_dann")
 
-train_NN('simu' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
+dataManager.compareInitialDistributions()
+
+#train_NN('simu' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 
