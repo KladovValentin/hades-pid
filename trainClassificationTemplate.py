@@ -371,5 +371,5 @@ dataManager.manageDataset("train_dann")
 
 dataManager.compareInitialDistributions()
 
-#train_NN('simu' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
+train_NN('simu' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 

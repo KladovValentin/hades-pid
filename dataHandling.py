@@ -49,6 +49,8 @@ class DataManager():
     def compareInitialDistributions(self):
         dftSim = pandas.read_parquet(os.path.join("nndata",'simu' + self.dataSetType + '.parquet'))
         dftExp = pandas.read_parquet(os.path.join("nndata",'expu' + self.dataSetType + '.parquet'))
+        dftSim = dftSim.loc[dftSim['pid'] == 3]
+        #dftExp = dftExp.loc[dftExp['pid'] == 4]
 
         inputsLength = len(dftSim.columns)-1
         class_histS = [dftSim[(list(dftSim.columns)[i])].to_numpy() for i in range(inputsLength)]
@@ -134,7 +136,7 @@ class DataManager():
         #simPath  = rootPath + "sim3/*sim*.root"
 
         if (mod == "simLabel"):
-            rootPath = rootPath + "sim4/*sim*.root"
+            rootPath = rootPath + "sim41/*sim*.root"
         else:
             rootPath = rootPath + "data4/pid_data_ascii_random.root:pid"
         fileC = 0
@@ -163,9 +165,9 @@ class DataManager():
             for i in range(len(self.pidsToSelect)):
                 ttables.append(setTable.loc[setTable['pid']==self.pidsToSelect[i]].copy())
                 ttables[i]['pid'] = i
-            #ttables[2] = ttables[2].sample(frac=0.3).copy()
-            #ttables[3] = ttables[3].sample(frac=0.3).copy()
-            #ttables[4] = ttables[4].sample(frac=0.5).copy()
+            ttables[2] = ttables[2].sample(frac=0.3).copy()
+            ttables[3] = ttables[3].sample(frac=0.3).copy()
+            ttables[4] = ttables[4].sample(frac=0.5).copy()
             try:
                 fullSetTable = pandas.concat(ttables, verify_integrity=True).sort_index()
             except ValueError as e:
