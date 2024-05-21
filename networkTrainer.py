@@ -1,5 +1,6 @@
 
 import sys
+import math
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -123,6 +124,8 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
     validAccu_history = []
     loss_valid = 0
     accuracy_valid = 0
+    validLosses = []
+    validAccuracies = []
 
     len_dataloader = min(len(sim_loader), len(exp_loader))
     len_dataloader1 = min(len(val_sim_loader), len(val_exp_loader))
@@ -137,19 +140,36 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
             (s_x, s_y) = next(sim_iter)
             (e_x, _)   = next(exp_iter)
             s_x = s_x.to(device)
-            s_y = s_y.long().to(device)
+            s_y = s_y.long().flatten().to(device)
             e_x = e_x.to(device)
 
+            #model.zero_grad()
+            batch_size = len(s_y)
+
             domain_label = torch.zeros(len(s_y)).long().to(device)
-            s_class, s_domain, _ = model(s_x)
+            s_class, s_domain = model(s_x)
             s_class = s_class.to(device)
             s_domain = s_domain.to(device)
 
+            batch_size = len(e_x)
+
             domain_labele = torch.ones(len(e_x)).long().to(device)
-            _, e_domain, _ = model(e_x)
+            _, e_domain = model(e_x)
             e_domain = e_domain.to(device)
 
-            running_loss = lossClass(s_class, s_y) + lossDomain(s_domain, domain_label) + lossDomain(e_domain, domain_labele)
+            running_loss_class = lossClass(s_class, s_y)
+            #print(s_domain.shape)
+            #print(domain_label.shape)
+            running_loss_domain = lossDomain(s_domain, domain_label) + lossDomain(e_domain, domain_labele)
+            running_loss = 0.1*running_loss_domain + running_loss_class
+
+            optimizer.zero_grad()
+            #if (i_step//2 == 0):
+            #    running_loss_class.backward()
+            #else:
+            #    running_loss_domain.backward()
+            running_loss.backward()
+            optimizer.step()
 
             e_domain_copy = e_domain.clone().detach()
             s_domain_copy = s_domain.clone().detach()
@@ -157,133 +177,131 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
             
             #print(indicesD.cpu(), domain_labele.cpu())
 
-            optimizer.zero_grad()
-            running_loss.backward()
-            optimizer.step()
-
             e_domain_copy1 = e_domain.clone().detach()
             if not torch.equal(e_domain_copy1, e_domain_copy):
                 print("prediction changed somehow even without grads")
             
-            indicesD = torch.max(s_domain_copy, 1)[1]
-            running_accD = torch.sum(indicesD.cpu()==domain_label.cpu())/(len(e_x) + len(s_x))
+            #print(s_domain)
+            indicesD = torch.argmax(s_domain_copy, 1)
+            running_accD = torch.sum(indicesD == 0)/(len(s_x))
 
-            indicesD1 = torch.max(e_domain_copy, 1)[1]
-            running_accD += torch.sum(indicesD1.cpu()==domain_labele.cpu())/(len(e_x) + len(s_x))
+            indicesD1 = torch.argmax(e_domain_copy, 1)
+            running_accD1 = torch.sum(indicesD1 == 1)/(len(e_x))
 
             #print(indicesD.cpu(), domain_labele.cpu())
 
-            indices = torch.max(s_class_copy, 1)[1]
-            running_acc = torch.sum(indices.cpu()==s_y.cpu())/s_y.cpu().shape[0]
+            indices = torch.max(s_class, 1)[1]
+            running_acc = torch.sum(indices==s_y)/len(s_y)
 
             #print(e_domain.cpu())
 
             train_history.append(1-running_acc)
             loss_history.append(float(running_loss))
 
-            tepoch.set_postfix(loss=float(running_loss), acc=float(running_acc)*100, accD=float(running_accD)*100)
+            tepoch.set_postfix(loss=float(running_loss), acc=float(running_acc)*100, accD=float(running_accD)*100, accD1=float(running_accD1)*100)
 
-            perc10 = (((len(loss_history)+1)*1)//len_dataloader)
-            if ( perc10>perc10p):
-                perc10p = perc10
+            #perc10 = (((len(loss_history)+1)*1)//len_dataloader)
+            #if ( perc10>perc10p):
+                #perc10p = perc10
                 # validation step
-                validLosses = []
-                validAccuracies = []
-                validFeaturesSim = []
-                validFeaturesExp = []
-                with torch.no_grad():
-                    model.eval()
-                    val_sim_iter = iter(val_sim_loader)
-                    val_exp_iter = iter(val_exp_loader)
-                    for j_step in range(len_dataloader1):
+                
+
+        validFeaturesSim = []
+        validFeaturesExp = []
+        with torch.no_grad():
+            model.eval()
+            val_sim_iter = iter(val_sim_loader)
+            val_exp_iter = iter(val_exp_loader)
+            for j_step in range(len_dataloader1):
                             
-                        (vs_x, vs_y) = next(val_sim_iter)
-                        (ve_x, _)   = next(val_exp_iter)
-                        vs_x = vs_x.to(device)
-                        vs_y = vs_y.long().to(device)
-                        ve_x = ve_x.to(device)
+                (vs_x, vs_y) = next(val_sim_iter)
+                (ve_x, _)   = next(val_exp_iter)
+                vs_x = vs_x.to(device)
+                vs_y = vs_y.long().to(device)
+                ve_x = ve_x.to(device)
 
-                        vs_y = vs_y.long().flatten()
+                vs_y = vs_y.long().flatten()
+                batch_size = len(vs_y)
 
-                        vdomain_label = torch.zeros(len(vs_y)).long().to(device)
-                        vs_class, vs_domain, vs_feature = model(vs_x)
-                        vs_class = vs_class.to(device)
-                        vs_domain = vs_domain.to(device)
-                        #print(s_class)
-                        vs_loss = lossClass(vs_class, vs_y) + lossDomain(vs_domain, vdomain_label)
+                vdomain_label = torch.zeros(len(vs_y)).long().to(device)
+                vs_class, vs_domain = model(vs_x)
+                vs_class = vs_class.to(device)
+                vs_domain = vs_domain.to(device)
+                #print(s_class)
+                vs_loss = lossClass(vs_class, vs_y) + 0.1*lossDomain(vs_domain, vdomain_label)
 
-                        vdomain_label = torch.ones(len(ve_x)).long().to(device)
-                        _, ve_domain, ve_feature = model(ve_x)
-                        ve_domain = ve_domain.to(device)
-                        ve_loss = lossDomain(ve_domain, vdomain_label)
+                batch_size = len(ve_x)
 
-                        vrunning_loss = vs_loss + ve_loss
+                vdomain_label = torch.ones(len(ve_x)).long().to(device)
+                _, ve_domain = model(ve_x)
+                ve_domain = ve_domain.to(device)
+                ve_loss = 0.1*lossDomain(ve_domain, vdomain_label)
 
-                        vindices = torch.max(vs_class, 1)[1]
-                        vrunning_acc = torch.sum(vindices==vs_y)/vs_y.shape[0]
+                vrunning_loss = vs_loss + ve_loss
 
-                        validLosses.append(float(vrunning_loss))
-                        validAccuracies.append(vrunning_acc.cpu())
+                vindices = torch.max(vs_class, 1)[1]
+                vrunning_acc = torch.sum(vindices==vs_y)/vs_y.shape[0]
 
-                        validFeaturesSim.append(vs_feature[:,10].detach().cpu().numpy())
-                        validFeaturesExp.append(ve_feature[:,10].detach().cpu().numpy())
+                validLosses.append(float(vrunning_loss))
+                validAccuracies.append(vrunning_acc.cpu())
 
-
-                bins = np.linspace(-0.1,0.1,2000)
-                validFeaturesSim = np.concatenate(validFeaturesSim)
-                validFeaturesExp = np.concatenate(validFeaturesExp)
-                plt.hist(validFeaturesSim, bins, color='#0504aa',
-                        alpha=0.7, rwidth=1.0, density=True, label = 'sim')
-                plt.hist(validFeaturesExp, bins, color='#9e001a',
-                        alpha=0.7, rwidth=1.0, density=True, label = 'exp')
-                plt.show()
-
-                loss_valid = np.mean(np.array(validLosses))
-                accuracy_valid = np.mean(np.array(validAccuracies))
-                validAccu_history.append(accuracy_valid)
-                validLoss_history.append(loss_valid)
-                model.train() 
+                #validFeaturesSim.append(vs_feature[:,10].detach().cpu().numpy())
+                #validFeaturesExp.append(ve_feature[:,10].detach().cpu().numpy())
 
 
-        
+            #bins = np.linspace(-0.1,0.1,2000)
+            #validFeaturesSim = np.concatenate(validFeaturesSim)
+            #validFeaturesExp = np.concatenate(validFeaturesExp)
+            #plt.hist(validFeaturesSim, bins, color='#0504aa',
+            #        alpha=0.7, rwidth=1.0, density=True, label = 'sim')
+            #plt.hist(validFeaturesExp, bins, color='#9e001a',
+            #        alpha=0.7, rwidth=1.0, density=True, label = 'exp')
+            #plt.show()
+
+            loss_valid = np.mean(np.array(validLosses))
+            accuracy_valid = np.mean(np.array(validAccuracies))
+            validAccu_history.append(accuracy_valid)
+            validLoss_history.append(loss_valid)
+
+
+            print("Valid loss: %f, V acc: %f, epoch: %f" % (loss_valid, accuracy_valid*100, epoch+1))
+
+            #model.eval()
+            model.cpu()
+            torch.save(model.state_dict(), os.path.join('nndata','tempModel' + dataSetType + '.pt'))
+            model.to(device)
+
+            model.train()
+
         if scheduler is not None:
             scheduler.step()
 
-        print("Valid loss: %f, V acc: %f, epoch: %f" % (loss_valid, accuracy_valid*100, epoch+1))
-
-        # drawing step
-        ep = np.arange(1,len(loss_history)+1,1)
-        lt = np.array(loss_history)
-        at = np.array(train_history)
-        vx = np.arange(len(loss_history)/len(validLoss_history),len(loss_history)+1,len(loss_history)/len(validLoss_history))
-        vyl= np.array(validLoss_history)
-        vya= np.array(validAccu_history)
-        plt.clf()
-        #plt.plot(ep,at,"orange",label="1-acc")
-        plt.plot(ep,lt,"blue",label="lossTrain")
-        plt.plot(vx, vyl,"red",label="lossValid")
-        plt.legend(loc=[0.5,0.6])
-        plt.xlabel('step')
-        plt.ylabel('Loss')
-        plt.show()
-
-        
-
-        model.eval()
-        model.cpu()
-        torch.save(model.state_dict(), os.path.join('nndata','tempModel' + dataSetType + '.pt'))
-        model.to(device)
-        model.train()
+    # drawing step
+    ep = np.arange(1,len(loss_history)+1,1)
+    lt = np.array(loss_history)
+    at = np.array(train_history)
+    vx = np.arange(len(loss_history)/len(validLoss_history),len(loss_history)+1,len(loss_history)/len(validLoss_history))
+    vyl= np.array(validLoss_history)
+    vya= np.array(validAccu_history)
+    plt.clf()
+    #plt.plot(ep,at,"orange",label="1-acc")
+    plt.plot(ep,lt,"blue",label="lossTrain")
+    plt.plot(vx, vyl,"red",label="lossValid")
+    plt.legend(loc=[0.5,0.6])
+    plt.xlabel('step')
+    plt.ylabel('Loss')
+    plt.show()
     
     model.eval()
 
     return 1
 
 
+
 def train_NN(simulation_path, experiment_path):
     print("start nn training")
     
-    batch_size = 8192*2
+    batch_size = 1024*2
 
     dftCorr = pandas.read_parquet(os.path.join("nndata",simulation_path))
     dftCorr = dataManager.normalizeDataset(dftCorr).sample(frac=1.0).reset_index(drop=True) # with shuffling
@@ -311,14 +329,14 @@ def train_NN(simulation_path, experiment_path):
     print(nClasses)
 
     valueCounts = dftCorr[list(dftCorr.columns)[-1]].value_counts(normalize=True)
-    print(valueCounts)
+    print(dftCorr[list(dftCorr.columns)[-1]].value_counts(normalize=False))
     indicesWeights = valueCounts.index.to_numpy()
     valuesWeights = valueCounts.values
     weights = np.zeros(nClasses).astype(np.float32)
     for i in range(nClasses):
-        weights[indicesWeights[i]] = 1./nClasses * 1./valuesWeights[i]
-    weights[3] = weights[3]/1.5
-    weights[2] = weights[2]/1.5
+        weights[indicesWeights[i]] = math.sqrt(1./nClasses * 1./valuesWeights[i])
+    weights[3] = weights[3]
+    weights[2] = weights[2]/2
     print(weights)
     
     print(dftCorr.isnull().sum())
@@ -339,12 +357,13 @@ def train_NN(simulation_path, experiment_path):
     #weights = np.array([0.6738684703630756, 10 ,2.2488611656428765, 60 ,0.9810510497144537]).astype(np.float32)
     #weights = np.array([5.13, 1.54 ,0.41, 31.3 ,1]).astype(np.float32)
     loss = nn.CrossEntropyLoss(torch.tensor(weights)).to(device)
+    #loss_domain = nn.CrossEntropyLoss().to(device)
     #loss = nn.MSELoss()
     loss_domain = nn.NLLLoss()
     #loss_domain = nn.BCELoss()
 
     #optimizer = optim.SGD(nn_model.parameters(), lr=0.1, momentum=0.9, weight_decay=0.05)
-    optimizer = optim.AdamW(nn_model.parameters(), lr=0.00001, betas=(0.5, 0.9), weight_decay=0.001)
+    optimizer = optim.AdamW(nn_model.parameters(), lr=0.00001, betas=(0.5, 0.9), weight_decay=0.000011)
     #optimizer = optim.Adam(nn_model.parameters(), lr=0.00003, weight_decay=0.05)
 
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
@@ -352,13 +371,13 @@ def train_NN(simulation_path, experiment_path):
 
     print("prepared to train nn")
     #train_DN_model(nn_model, train_loader, loss, optimizer, 10, valid_loader, scheduler = scheduler)
-    train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 2, scheduler=scheduler)
+    train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 15, scheduler=scheduler)
 
     torch.onnx.export(nn_model.cpu(),                                # model being run
                   torch.randn(1, input_dim),    # model input (or a tuple for multiple inputs)
                   os.path.join("nndata",'tempModel' + dataSetType + '.onnx'),           # where to save the model (can be a file or file-like object)
                   input_names = ["input"],              # the model's input names
-                  output_names = ["output"])            # the model's output names
+                  output_names = ["class","domain"])            # the model's output names
 
     print("trained nn")
     #model_scripted = torch.jit.trace(nn_model,torch.tensor(np.array([load_dataset(dataTable)[0][0],load_dataset(dataTable)[0][1]])))
@@ -369,7 +388,7 @@ print("start_train_python")
 
 dataManager.manageDataset("train_dann")
 
-dataManager.compareInitialDistributions()
+#dataManager.compareInitialDistributions()
 
 train_NN('simu' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 

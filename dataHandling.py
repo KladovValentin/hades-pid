@@ -42,8 +42,12 @@ class DataManager():
     def __init__(self,datasetType) -> None:
         self.dataSetType = datasetType
         self.poorColumnValues = [('tofdedx',-1)]
+        #self.poorColumnValues = []
         self.pidsToSelect = [8,9,11,12,14]
-        self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch','mass2']
+        #self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch','mass2']
+        #self.features = ['momentum','charge','theta','phi','tofdedx','tof','distmeta','beta','metamatch','mass2']
+        #self.features = ['momentum','charge','theta','phi','mdcdedx','tof','distmeta','beta','metamatch','mass2']
+        self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','metamatch','mass2']
     
 
     def compareInitialDistributions(self):
@@ -56,7 +60,13 @@ class DataManager():
         class_histS = [dftSim[(list(dftSim.columns)[i])].to_numpy() for i in range(inputsLength)]
         class_histE = [dftExp[(list(dftExp.columns)[i])].to_numpy() for i in range(inputsLength)]
 
-        bins = [np.arange(np.mean(class_histS[i]) - 4 * np.std(class_histS[i]), np.mean(class_histS[i]) + 4 * np.std(class_histS[i]) + 4*np.std(class_histS[i])/200,  4*np.std(class_histS[i])/200) for i in range(inputsLength)]
+        lowBord = [np.mean(class_histS[i]) - 2 * np.std(class_histS[i]) for i in range(inputsLength)]
+        upBord = [np.mean(class_histS[i]) + 2 * np.std(class_histS[i]) + 4*np.std(class_histS[i])/200 for i in range(inputsLength)]
+        step = [4*np.std(class_histS[i])/200 for i in range(inputsLength)]
+        print(lowBord[0])
+        print(upBord[0])
+        print(step[0])
+        bins = [np.arange(-5, 5, 0.01) for i in range(inputsLength)]
 
         # Create a 3x3 grid of subplots
         #fig, axes = plt.subplots(3, 4, figsize=(10, 8))
@@ -136,17 +146,18 @@ class DataManager():
         #simPath  = rootPath + "sim3/*sim*.root"
 
         if (mod == "simLabel"):
-            rootPath = rootPath + "sim41/*sim*.root"
+            rootPath = rootPath + "sim41Gen3/*sim*.root"
         else:
-            rootPath = rootPath + "data4/pid_data_ascii_random.root:pid"
+            #rootPath = rootPath + "data41/pid_data_ascii_random.root:pid"
+            rootPath = rootPath + "data41/*exp*.root"
         fileC = 0
         batches = []
         for batch in uproot.iterate([rootPath],library="pd"):
             print(fileC)
             if mod == "simLabel":
-                batches.append(batch.sample(frac=0.4).reset_index(drop=True))
+                batches.append(batch.sample(frac=0.05*1.0).reset_index(drop=True))
             else:
-                batches.append(batch)
+                batches.append(batch.sample(frac=0.05).reset_index(drop=True))
             del batch
             fileC = fileC+1
         #
@@ -165,8 +176,8 @@ class DataManager():
             for i in range(len(self.pidsToSelect)):
                 ttables.append(setTable.loc[setTable['pid']==self.pidsToSelect[i]].copy())
                 ttables[i]['pid'] = i
-            ttables[2] = ttables[2].sample(frac=0.3).copy()
-            ttables[3] = ttables[3].sample(frac=0.3).copy()
+            ttables[2] = ttables[2].sample(frac=0.3).copy() #0.3
+            ttables[3] = ttables[3].sample(frac=0.8).copy()
             ttables[4] = ttables[4].sample(frac=0.5).copy()
             try:
                 fullSetTable = pandas.concat(ttables, verify_integrity=True).sort_index()
@@ -222,10 +233,10 @@ class DataManager():
         elif (mod == "train_nn"):
             mean, std = self.meanAndStdTable(dftCorr,setTable)
         elif (mod.startswith("test")):
-            mean, std = self.readTrainData()
-            
+            mean, std = self.readTrainData()  
         if (mod.startswith("train")):
             self.writeTrainData(mean,std)
+
 
         # Check the mean and averages
         dftCorr = self.normalizeDataset(dftCorr).copy()

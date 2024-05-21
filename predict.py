@@ -80,9 +80,9 @@ def makePredicionList(experiment_path, savePath):
     nn_model = loadModel(input_dim, nClasses)
     nn_model.eval()
     
-    inputTens = torch.tensor(np.array([exp_dataset[0][0],exp_dataset[1][0]])).to(device)
-    print(inputTens)
-    print(nn_model(inputTens)[0].softmax(dim=1).detach().cpu().numpy())
+    #inputTens = torch.tensor(np.array([exp_dataset[0][0],exp_dataset[1][0]])).to(device)
+    #print(inputTens)
+    #print(nn_model(inputTens)[0].softmax(dim=1).detach().cpu().numpy())
 
     dat_list = []
     exp_iter = iter(exp_dataLoader)
@@ -96,10 +96,10 @@ def makePredicionList(experiment_path, savePath):
         #                     [-0.169018, -1.417659,  2.259818,  1.890011,  0.408186,  0.125931, -0.047164,  0.560324, -0.004500,  -0.314674, -0.249043]]).astype(np.float32)
         #inputTens = torch.tensor(inputArr)
         #print(nn_model(inputTens)[0].softmax(dim=1).detach().cpu().numpy())
-        e_class, e_domain, e_feature = nn_model(ve_x)
+        e_class, e_domain = nn_model(ve_x)
         e_class = e_class.softmax(dim=1).detach().cpu().numpy()
-        e_feature = e_feature[:,0:-1].detach().cpu().numpy()
-        e_class = np.concatenate((e_class,e_feature),axis=1)
+        #e_feature = e_feature[:,0:-1].detach().cpu().numpy()
+        #e_class = np.concatenate((e_class,e_feature),axis=1)
         dat_list.append(pandas.DataFrame(e_class))
 
     fullPredictionList = pandas.concat(list(dat_list),ignore_index=True)
@@ -213,8 +213,8 @@ def draw_parameter_spread(tables, column):
     #class_hist1 = np.sqrt(np.absolute(tables[2][column].to_numpy()))
     #class_hist2 = np.sqrt(np.absolute(tables[4][column].to_numpy()))
     
-    class_hist0 = tables[1][column].to_numpy()
-    class_hist1 = tables[3][column].to_numpy()
+    class_hist0 = tables[0][column].to_numpy()
+    class_hist1 = tables[2][column].to_numpy()
     class_hist2 = tables[4][column].to_numpy()
 
 
@@ -265,8 +265,11 @@ def draw_2d_param_spread(tables, column1, column2):
 
     h0 = plt.hist2d(class_hist1[0],class_hist1[1], bins = 300, cmin=5, cmap=plt.cm.jet)
     h1 = plt.hist2d(class_hist0[0],class_hist0[1], bins = 300, cmin=5, cmap=plt.cm.jet)
-    h2 = plt.hist2d(class_hist2[0],class_hist2[1], bins = 300, cmin=5, cmap=plt.cm.jet)
+    h2 = plt.hist2d(class_hist2[0],class_hist2[1], bins = 100, cmin=1, cmap=plt.cm.jet)
     plt.colorbar(h2[3])
+    print(len(class_hist2[0]))
+    print("ASAAAAAAAAAAAAAAAAAAAAA")
+    print(class_hist2)
     #plt.hist2d(class_hist2[0],class_hist2[1], bins = 300, cmap = "RdYlBu_r", norm = colors.LogNorm())
     #plt.ylim([0,1.5])
     plt.show()
@@ -302,7 +305,7 @@ def draw_initial_distribution(tablesS, tablesE):
     bins = [np.arange(np.mean(class_histS[i]) - 4 * np.std(class_histS[i]), np.mean(class_histS[i]) + 4 * np.std(class_histS[i]) + 4*np.std(class_histS[i])/200,  4*np.std(class_histS[i])/200) for i in range(10)]
 
     # Create a 3x3 grid of subplots
-    fig, axes = plt.subplots(3, 4, figsize=(10, 8))
+    fig, axes = plt.subplots(4, 4, figsize=(10, 8))
 
     # Loop through the subplots and plot histograms
     for i, ax in enumerate(axes.flatten()):
@@ -356,11 +359,12 @@ def write_output(outputs, mod, enlist):
     resultingMarks.to_csv("testMarks" + mod + ".csv",sep='	',header=False,index=False)
 
 
-def analyseOutput(predFileName, experiment_path):
+def analyseOutput(predFileName, experiment_path,mod):
     pT = pandas.read_parquet(os.path.join("nndata",predFileName))
     dftCorrExp = pandas.read_parquet(os.path.join("nndata",experiment_path))
     print(pT)
     print(dftCorrExp)
+    plt.show()
     tablesPClasses = []
     tablesClasses = []
     tablesClasses2 = []
@@ -371,11 +375,14 @@ def analyseOutput(predFileName, experiment_path):
     mask2 = []
     for i in range(lrange):
         cN = list(pT.columns)
-        mask.append((dftCorrExp['beta']<1.2) & (dftCorrExp['beta']>0.55))
-        mask2.append((dftCorrExp['beta']<1.2) & (dftCorrExp['beta']>0.55))
+        #mask.append((dftCorrExp['beta']<1.2) & (dftCorrExp['beta']>0.25))
+        #mask2.append((dftCorrExp['beta']<1.2) & (dftCorrExp['beta']>0.25))
+        mask.append((dftCorrExp['mass2']<111.2))
+        mask2.append((dftCorrExp['mass2']<111.2))
         for j in range(lrange-1):
-            mask2[i] = mask2[i] & (dftCorrExp['pid'] == i)
-            mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.3)
+            if (mod == "sim"):
+                mask2[i] = mask2[i] & (dftCorrExp['pid'] == i)
+            mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.4)
         tablesPClasses.append(pT.loc[mask2[i]].copy())
         tablesClasses.append(dftCorrExp.loc[mask[i]].copy())
         tablesClasses2.append(dftCorrExp.loc[mask2[i]].copy())
@@ -387,15 +394,20 @@ def analyseOutput(predFileName, experiment_path):
 
     print(tablesClasses2)
     print(tablesPClasses)
-    draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
+    
     #draw_probabilities_spread(tablesPClasses[1],tablesPClasses[1])
-    draw_confusion_matrix(np.array(mask),np.array(mask2))
-    #draw_parameter_spread(tablesClasses,'mass2')
+    if (mod == "sim"):
+        draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
+        draw_confusion_matrix(np.array(mask),np.array(mask2))
+        draw_2d_param_spread(tablesClasses2,'momentum','mdcdedx')
+        #draw_2d_param_spread(tablesClasses2,'momentum','beta')
+    elif (mod == "exp"):
+        draw_2d_param_spread(tablesClasses,'momentum','mdcdedx')
+        #draw_2d_param_spread(tablesClasses,'momentum','beta')
+        draw_parameter_spread(tablesClasses,'mass2')
     #draw_parameter_spread(tablesClasses,'tof')
     #draw_parameter_spread(tablesClasses2,'mass2')
     #plt.show()
-    #draw_2d_param_spread(tablesClasses,'momentum','mdcdedx')
-    #draw_2d_param_spread(tablesClasses,'momentum','beta')
 
     #0.7380741598515985,0.924485731694385,2.541151390667785,4.290668468491014,0.5163012252092372
 
@@ -414,8 +426,10 @@ def analyseExpAndSim(predFileNameSim, experiment_pathSim, predFileNameExp, exper
     mask = []
     mask2 = []
     #for i in range(lrange):
-    mask.append((dftS['beta']<1.2) & (dftS['beta']>0.55))
-    mask2.append((dftE['beta']<1.2) & (dftE['beta']>0.55))
+    #mask.append((dftS['beta']<1.2) & (dftS['beta']>0.55))
+    #mask2.append((dftE['beta']<1.2) & (dftE['beta']>0.55))
+    mask.append((dftS['mass2']<111.2))
+    mask2.append((dftE['mass2']<111.2))
     print(mask[0].shape[0])
     print(pTS.shape[0])
     tablesPClassesS.append(pTS.copy())
@@ -447,8 +461,8 @@ def predict(fName, oName):
 #print("start python predict")
 #predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
 #predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
-#analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
-analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet')
+analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet',"exp")
+analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet',"sim")
 
 #analyseExpAndSim('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet', 'predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 
