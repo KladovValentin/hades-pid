@@ -151,7 +151,7 @@ class DataManager():
             rootPath = rootPath + "sim41Gen3/*sim*.root"
         else:
             #rootPath = rootPath + "data41/pid_data_ascii_random.root:pid"
-            rootPath = rootPath + "data41/*exp*.root"
+            rootPath = rootPath + "data41/*exp*.root:pid"
         fileC = 0
         batches = []
         for batch in uproot.iterate([rootPath],library="pd"):
