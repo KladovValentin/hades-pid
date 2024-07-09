@@ -14,7 +14,7 @@ import os
 from tqdm.auto import tqdm
 from tqdm import trange
 from pympler import asizeof
-from models.model import DANN
+from models.model import DANN, Encoder, Classifier, Discriminator
 from models.model import Model
 from dataHandling import My_dataset, DataManager, load_dataset
 
@@ -56,7 +56,7 @@ def train_DN_model(model, train_loader, loss, optimizer, num_epochs, valid_loade
             running_loss.backward()
             optimizer.step()
 
-            indices = torch.max(prediction, 1)[1]
+            indices = torch.max(prediction, 1)[1]   
             running_acc = torch.sum(indices==y)/y.shape[0]
             if i_step > len(train_loader)*3./4.:
                 accuracy_train += running_acc
@@ -297,11 +297,145 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
     return 1
 
 
+def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_loader, val_exp_loader, val_sim_loader, lossClass, lossDomain, optimizer, num_epochs, scheduler):
+    loss_history = []
+    train_history = []
+    validLoss_history = []
+    validAccu_history = []
+    loss_valid = 0
+    accuracy_valid = 0
+    validLosses = []
+    validAccuracies = []
+
+    len_dataloader = min(len(sim_loader), len(exp_loader))
+    len_dataloader1 = min(len(val_sim_loader), len(val_exp_loader))
+    for epoch in range(num_epochs):
+        sim_iter = iter(sim_loader)
+        exp_iter = iter(exp_loader)
+
+        start_steps = epoch * len_dataloader
+        total_steps = num_epochs * len_dataloader
+
+        #if (epoch // 2 * 2 != epoch):
+        #    encoder.eval()
+        #    classifier.eval()
+        #else:
+        #    encoder.train()
+        #    classifier.train()
+
+        tepoch = tqdm(range(len_dataloader), total=len_dataloader)
+        for i_step in tepoch:
+            tepoch.set_description(f"Epoch {epoch}")
+
+            p = float(i_step + start_steps) / total_steps
+            #alpha = 2. / (1. + np.exp(-10 * p)) - 1
+            alpha = 0.1
+
+            (s_x, s_y) = next(sim_iter)
+            (e_x, _)   = next(exp_iter)
+            s_x = s_x.to(device)
+            s_y = s_y.long().flatten().to(device)
+            e_x = e_x.to(device)
+
+            combined_x = torch.cat((s_x,e_x),0).to(device)
+
+            domain_label = torch.zeros(len(s_y)).long().to(device)
+            domain_labele = torch.ones(len(e_x)).long().to(device)
+            combined_domain_label = torch.cat((domain_label, domain_labele), 0).to(device)
+
+
+            optimizer.zero_grad()
+
+            combined_feature = encoder(combined_x)
+            sim_feature = encoder(s_x)
+            exp_feature = encoder(e_x)
+
+            # 1.Classification loss
+            s_class = classifier(sim_feature)
+            s_class = s_class.to(device)
+            class_loss = lossClass(s_class, s_y)
+
+            # 2. Domain loss
+            domain_pred = discriminator(combined_feature, alpha)
+            domain_preds = discriminator(sim_feature, alpha)
+            domain_prede = discriminator(exp_feature, alpha)
+            #print(s_class)
+            #print(domain_prede)
+            domain_loss = lossDomain(domain_preds,domain_label) + lossDomain(domain_prede,domain_labele)
+            #domain_loss = lossDomain(domain_pred, combined_domain_label)
+            
+            #if (epoch // 2 * 2 != epoch):
+            #encoder.eval()
+            #classifier.eval()
+            total_loss = class_loss + 10*domain_loss
+            #total_loss = domain_loss
+
+            total_loss.backward()
+            optimizer.step()
+            
+            #indicesD = torch.argmax(domain_pred, 1)
+            #running_accD = torch.sum(indicesD == combined_domain_label)/(len(combined_domain_label))
+            indicesDs = torch.max(domain_preds, 1)[1]
+            running_accDs = torch.sum(indicesDs == domain_label)/(len(domain_label))
+            indicesDe = torch.max(domain_prede, 1)[1]
+            running_accDe = torch.sum(indicesDe == domain_labele)/(len(domain_labele))
+
+            indices = torch.max(s_class, 1)[1]
+            running_acc = torch.sum(indices==s_y)/len(s_y)
+
+            train_history.append(1-running_acc)
+            loss_history.append(float(total_loss))
+
+            tepoch.set_postfix(loss=float(class_loss), lossDom=float(domain_loss), acc=float(running_acc)*100, accD=float(running_accDs)*100, accD1=float(running_accDe)*100)
+
+        if scheduler is not None:
+            scheduler.step()
+        
+        encoder.eval()
+        encoder.cpu()
+        torch.save(encoder.state_dict(), os.path.join('nndata','encoder' + dataSetType + '.pt'))
+        encoder.to(device)
+        encoder.train()
+
+        classifier.eval()
+        classifier.cpu()
+        torch.save(classifier.state_dict(), os.path.join('nndata','classifier' + dataSetType + '.pt'))
+        classifier.to(device)
+        classifier.train()
+
+        discriminator.eval()
+        discriminator.cpu()
+        torch.save(discriminator.state_dict(), os.path.join('nndata','discriminator' + dataSetType + '.pt'))
+        discriminator.to(device)
+        discriminator.train()
+
+    # drawing step
+    ep = np.arange(1,len(loss_history)+1,1)
+    lt = np.array(loss_history)
+    at = np.array(train_history)
+    #vx = np.arange(len(loss_history)/len(validLoss_history),len(loss_history)+1,len(loss_history)/len(validLoss_history))
+    vyl= np.array(validLoss_history)
+    vya= np.array(validAccu_history)
+    plt.clf()
+    #plt.plot(ep,at,"orange",label="1-acc")
+    plt.plot(ep,lt,"blue",label="lossTrain")
+    #plt.plot(vx, vyl,"red",label="lossValid")
+    plt.legend(loc=[0.5,0.6])
+    plt.xlabel('step')
+    plt.ylabel('Loss')
+    plt.show()
+    
+    encoder.eval()
+    classifier.eval()
+    discriminator.eval()
+
+    return 1
+
 
 def train_NN(simulation_path, experiment_path):
     print("start nn training")
     
-    batch_size = 1024*2
+    batch_size = 1024*8
 
     dftCorr = pandas.read_parquet(os.path.join("nndata",simulation_path))
     dftCorr = dataManager.normalizeDataset(dftCorr).sample(frac=1.0).reset_index(drop=True) # with shuffling
@@ -335,8 +469,8 @@ def train_NN(simulation_path, experiment_path):
     weights = np.zeros(nClasses).astype(np.float32)
     for i in range(nClasses):
         weights[indicesWeights[i]] = math.sqrt(1./nClasses * 1./valuesWeights[i])
-    weights[3] = weights[3]
-    weights[2] = weights[2]/2
+    weights[3] = weights[3]/4
+    weights[2] = weights[2]/4
     print(weights)
     
     print(dftCorr.isnull().sum())
@@ -349,6 +483,13 @@ def train_NN(simulation_path, experiment_path):
     #nn_model = Model(input_dim=input_dim, output_dim=nClasses)
     nn_model = DANN(input_dim=input_dim, output_dim=nClasses).type(torch.FloatTensor).to(device)
 
+    encoder = Encoder(input_dim=input_dim, output_dim=64).type(torch.FloatTensor).to(device)
+    classifier = Classifier(input_dim=64, output_dim=nClasses).type(torch.FloatTensor).to(device)
+    discriminator = Discriminator(input_dim=64, output_dim=2).type(torch.FloatTensor).to(device)
+
+    #exported_program = torch.export.export(DANN(input_dim=input_dim, output_dim=nClasses), (torch.randn(2,input_dim),))
+    #torch.export.save(exported_program, 'exported_program.pt2')
+
     #weights = np.array([0.7195969431474389,0.8441318995839315,1.9450211571985525,8.533961043270507,0.5572980154693978]).astype(np.float32)
     #weights = np.array([0.6738684703630756,0.49427438150839936,2.2488611656428765,24.62766199493874,0.9810510497144537]).astype(np.float32)
     #weights = np.array([1.33, 1.64, 2.98, 60, 1]).astype(np.float32)
@@ -357,27 +498,43 @@ def train_NN(simulation_path, experiment_path):
     #weights = np.array([0.6738684703630756, 10 ,2.2488611656428765, 60 ,0.9810510497144537]).astype(np.float32)
     #weights = np.array([5.13, 1.54 ,0.41, 31.3 ,1]).astype(np.float32)
     loss = nn.CrossEntropyLoss(torch.tensor(weights)).to(device)
+    #loss = nn.CrossEntropyLoss().to(device)
     #loss_domain = nn.CrossEntropyLoss().to(device)
     #loss = nn.MSELoss()
-    loss_domain = nn.NLLLoss()
+    #loss_domain = nn.NLLLoss()
+    loss_domain = nn.CrossEntropyLoss().to(device)
     #loss_domain = nn.BCELoss()
 
-    #optimizer = optim.SGD(nn_model.parameters(), lr=0.1, momentum=0.9, weight_decay=0.05)
-    optimizer = optim.AdamW(nn_model.parameters(), lr=0.00001, betas=(0.5, 0.9), weight_decay=0.000011)
-    #optimizer = optim.Adam(nn_model.parameters(), lr=0.00003, weight_decay=0.05)
+    #optimizer = optim.SGD(nn_model.parameters(), lr=0.0001, momentum=0.9, weight_decay=0.0)
+    optimizer = optim.AdamW(list(encoder.parameters())+list(classifier.parameters())+list(discriminator.parameters()), lr=0.0001, betas=(0.9, 0.999), weight_decay=0.0003)
+    #optimizer = optim.AdamW(discriminator.parameters(), lr=0.003, betas=(0.9, 0.999), weight_decay=0.0000)
+    #optimizer = optim.AdamW(nn_model.parameters(), lr=0.00003, betas=(0.5, 0.9), weight_decay=0.0001)
+    #optimizer = optim.Adam(list(encoder.parameters())+list(classifier.parameters())+list(discriminator.parameters()), lr=0.00003, weight_decay=0.0)
 
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.5)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.3)
     #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, threshold=0.2, factor=0.2)
 
     print("prepared to train nn")
     #train_DN_model(nn_model, train_loader, loss, optimizer, 10, valid_loader, scheduler = scheduler)
-    train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 15, scheduler=scheduler)
+    train_Proper_DANN_model(encoder,classifier,discriminator, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 2, scheduler)
+    #train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 3, scheduler=scheduler)
 
     torch.onnx.export(nn_model.cpu(),                                # model being run
                   torch.randn(1, input_dim),    # model input (or a tuple for multiple inputs)
                   os.path.join("nndata",'tempModel' + dataSetType + '.onnx'),           # where to save the model (can be a file or file-like object)
                   input_names = ["input"],              # the model's input names
                   output_names = ["class","domain"])            # the model's output names
+    
+    torch.onnx.export(encoder.cpu(),                                # model being run
+                  torch.randn(1, input_dim),    # model input (or a tuple for multiple inputs)
+                  os.path.join("nndata",'encoder' + dataSetType + '.onnx'),           # where to save the model (can be a file or file-like object)
+                  input_names = ["input"],              # the model's input names
+                  output_names = ["features"])            # the model's output names
+    torch.onnx.export(classifier.cpu(),                                # model being run
+                  torch.randn(1, 64),    # model input (or a tuple for multiple inputs)
+                  os.path.join("nndata",'classifier' + dataSetType + '.onnx'),           # where to save the model (can be a file or file-like object)
+                  input_names = ["features"],              # the model's input names
+                  output_names = ["class"])            # the model's output names
 
     print("trained nn")
     #model_scripted = torch.jit.trace(nn_model,torch.tensor(np.array([load_dataset(dataTable)[0][0],load_dataset(dataTable)[0][1]])))
@@ -386,7 +543,7 @@ def train_NN(simulation_path, experiment_path):
 
 print("start_train_python")
 
-dataManager.manageDataset("train_dann")
+#dataManager.manageDataset("train_dann")
 
 #dataManager.compareInitialDistributions()
 

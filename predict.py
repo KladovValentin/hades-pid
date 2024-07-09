@@ -11,7 +11,7 @@ import pandas
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
-from models.model import DANN
+from models.model import DANN, Encoder, Classifier, Discriminator
 from models.model import Model
 from dataHandling import My_dataset, DataManager, load_dataset
 from torch.utils.data import Dataset, SubsetRandomSampler, DataLoader
@@ -34,6 +34,16 @@ def loadModel(input_dim, nClasses):
     nn_model.load_state_dict(torch.load(os.path.join('nndata','tempModel' + dataSetType + '.pt')))
     #nn_model.eval()
     return nn_model.to(device)
+
+def loadModelSeparated(input_dim, nClasses):
+    encoder = Encoder(input_dim=input_dim, output_dim=64).type(torch.FloatTensor).to(device)
+    encoder.load_state_dict(torch.load(os.path.join('nndata','encoder' + dataSetType + '.pt')))
+    classifier = Classifier(input_dim=64, output_dim=nClasses).type(torch.FloatTensor).to(device)
+    classifier.load_state_dict(torch.load(os.path.join('nndata','classifier' + dataSetType + '.pt')))
+    discriminator = Discriminator(input_dim=64, output_dim=2).type(torch.FloatTensor).to(device)
+    discriminator.load_state_dict(torch.load(os.path.join('nndata','discriminator' + dataSetType + '.pt')))
+    #nn_model.eval()
+    return encoder,classifier,discriminator
 
 def constructPredictionFrame(index,nparray):
     # return new DataFrame with 4 columns corresponding to probabilities of resulting classes and 5th column to chi2 
@@ -77,8 +87,12 @@ def makePredicionList(experiment_path, savePath):
     input_dim = exp_dataset[0][0].shape[0]
 
     #load nn and predict
-    nn_model = loadModel(input_dim, nClasses)
-    nn_model.eval()
+    #nn_model = loadModel(input_dim, nClasses)
+    #nn_model.eval()
+    encoder,classifier,discriminator = loadModelSeparated(input_dim, nClasses)
+    encoder.eval()
+    classifier.eval()
+    discriminator.eval()
     
     #inputTens = torch.tensor(np.array([exp_dataset[0][0],exp_dataset[1][0]])).to(device)
     #print(inputTens)
@@ -96,10 +110,12 @@ def makePredicionList(experiment_path, savePath):
         #                     [-0.169018, -1.417659,  2.259818,  1.890011,  0.408186,  0.125931, -0.047164,  0.560324, -0.004500,  -0.314674, -0.249043]]).astype(np.float32)
         #inputTens = torch.tensor(inputArr)
         #print(nn_model(inputTens)[0].softmax(dim=1).detach().cpu().numpy())
-        e_class, e_domain = nn_model(ve_x)
+        #e_class, e_domain = nn_model(ve_x)
+        e_feature = encoder(ve_x)
+        e_class = classifier(e_feature)
         e_class = e_class.softmax(dim=1).detach().cpu().numpy()
         #e_feature = e_feature[:,0:-1].detach().cpu().numpy()
-        #e_class = np.concatenate((e_class,e_feature),axis=1)
+        e_class = np.concatenate((e_class,e_feature.detach().cpu().numpy()),axis=1)
         dat_list.append(pandas.DataFrame(e_class))
 
     fullPredictionList = pandas.concat(list(dat_list),ignore_index=True)
@@ -213,14 +229,14 @@ def draw_parameter_spread(tables, column):
     #class_hist1 = np.sqrt(np.absolute(tables[2][column].to_numpy()))
     #class_hist2 = np.sqrt(np.absolute(tables[4][column].to_numpy()))
     
-    class_hist0 = tables[0][column].to_numpy()
-    class_hist1 = tables[2][column].to_numpy()
+    class_hist0 = tables[1][column].to_numpy()
+    class_hist1 = tables[3][column].to_numpy()
     class_hist2 = tables[4][column].to_numpy()
 
 
     class_histAll = np.concatenate((class_hist0,class_hist1),axis=0)
 
-    bins = np.linspace(-5,5,5000)
+    bins = np.linspace(-1,1,500)
 
     #plt.hist(class_histAll[:], bins, color='#660404',
     #                        alpha=0.7, rwidth=1.0, label = '$Sum$')
@@ -257,18 +273,21 @@ def draw_2d_param_spread(tables, column1, column2):
     class_hist1 = [tables[4][column1].to_numpy(),tables[4][column2].to_numpy()]
     class_hist2 = [tables[3][column1].to_numpy(),tables[3][column2].to_numpy()]
 
-    x = np.linspace(0,5,100)
-    y = 1./np.sqrt(1.+(0.195**2)/(x**2)) * (1.-0.02*np.exp(-((x-0.55)*(x-0.55))/2./(0.3*0.3)))
-    plt.plot(x,y,'r')
-    y1 = 1./np.sqrt(1.+(0.685**2)/(x**2)) * (1.-0.02*np.exp(-((x-0.95)*(x-0.95))/2./(0.3*0.3)))
-    plt.plot(x,y1,'r')
+    if (column2 == "beta"):
+        x = np.linspace(0,1,100)
+        y = 1./np.sqrt(1.+(0.195**2)/(x**2)) * (1.-0.02*np.exp(-((x-0.55)*(x-0.55))/2./(0.3*0.3)))
+        plt.plot(x,y,'r')
+        xk = np.linspace(0,1,100)
+        yk = 1./np.sqrt(1.+(0.493**2)/(xk**2))
+        plt.plot(xk,yk,'r')
+        y1 = 1./np.sqrt(1.+(0.685**2)/(x**2)) * (1.-0.02*np.exp(-((x-0.95)*(x-0.95))/2./(0.3*0.3)))
+        plt.plot(x,y1,'r')
 
-    h0 = plt.hist2d(class_hist1[0],class_hist1[1], bins = 300, cmin=5, cmap=plt.cm.jet)
+    #h0 = plt.hist2d(class_hist1[0],class_hist1[1], bins = 300, cmin=5, cmap=plt.cm.jet)
     h1 = plt.hist2d(class_hist0[0],class_hist0[1], bins = 300, cmin=5, cmap=plt.cm.jet)
     h2 = plt.hist2d(class_hist2[0],class_hist2[1], bins = 100, cmin=1, cmap=plt.cm.jet)
     plt.colorbar(h2[3])
     print(len(class_hist2[0]))
-    print("ASAAAAAAAAAAAAAAAAAAAAA")
     print(class_hist2)
     #plt.hist2d(class_hist2[0],class_hist2[1], bins = 300, cmap = "RdYlBu_r", norm = colors.LogNorm())
     #plt.ylim([0,1.5])
@@ -361,7 +380,7 @@ def write_output(outputs, mod, enlist):
 
 def analyseOutput(predFileName, experiment_path,mod):
     pT = pandas.read_parquet(os.path.join("nndata",predFileName))
-    dftCorrExp = pandas.read_parquet(os.path.join("nndata",experiment_path))
+    dftCorrExp = pandas.read_parquet(os.path.join("nndata",experiment_path)).reset_index()
     print(pT)
     print(dftCorrExp)
     plt.show()
@@ -375,14 +394,17 @@ def analyseOutput(predFileName, experiment_path,mod):
     mask2 = []
     for i in range(lrange):
         cN = list(pT.columns)
-        #mask.append((dftCorrExp['beta']<1.2) & (dftCorrExp['beta']>0.25))
-        #mask2.append((dftCorrExp['beta']<1.2) & (dftCorrExp['beta']>0.25))
-        mask.append((dftCorrExp['mass2']<111.2))
-        mask2.append((dftCorrExp['mass2']<111.2))
+        mask.append((dftCorrExp['beta']<1) & (dftCorrExp['beta']>0.5))
+        mask2.append((dftCorrExp['beta']<1) & (dftCorrExp['beta']>0.5))
+        #mask.append((dftCorrExp['mass2']<111.2))
+        #mask2.append((dftCorrExp['mass2']<111.2))
         for j in range(lrange-1):
             if (mod == "sim"):
                 mask2[i] = mask2[i] & (dftCorrExp['pid'] == i)
-            mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.4)
+            mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.3)
+        pT.index = pandas.Int64Index(pT.index)
+        print (pT.index)
+        print (mask2[i].index)
         tablesPClasses.append(pT.loc[mask2[i]].copy())
         tablesClasses.append(dftCorrExp.loc[mask[i]].copy())
         tablesClasses2.append(dftCorrExp.loc[mask2[i]].copy())
@@ -400,10 +422,11 @@ def analyseOutput(predFileName, experiment_path,mod):
         draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
         draw_confusion_matrix(np.array(mask),np.array(mask2))
         draw_2d_param_spread(tablesClasses2,'momentum','mdcdedx')
-        #draw_2d_param_spread(tablesClasses2,'momentum','beta')
+        draw_2d_param_spread(tablesClasses2,'momentum','beta')
+        #draw_parameter_spread(tablesClasses,'mass2')
     elif (mod == "exp"):
         draw_2d_param_spread(tablesClasses,'momentum','mdcdedx')
-        #draw_2d_param_spread(tablesClasses,'momentum','beta')
+        draw_2d_param_spread(tablesClasses,'momentum','beta')
         draw_parameter_spread(tablesClasses,'mass2')
     #draw_parameter_spread(tablesClasses,'tof')
     #draw_parameter_spread(tablesClasses2,'mass2')
@@ -438,8 +461,8 @@ def analyseExpAndSim(predFileNameSim, experiment_pathSim, predFileNameExp, exper
     tablesClassesS.append(dftS.copy())
     tablesClassesE.append(dftE.copy())
     
-    #draw_feature_distribution(tablesPClassesS,tablesPClassesE)
-    draw_initial_distribution(tablesClassesS,tablesClassesE)
+    draw_feature_distribution(tablesPClassesS,tablesPClassesE)
+    #draw_initial_distribution(tablesClassesS,tablesClassesE)
 
 
 def predict_nn(fName, oName):
@@ -459,8 +482,8 @@ def predict(fName, oName):
 #dataSetType = 'NewKIsUsed'
 
 #print("start python predict")
-#predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
-#predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
+predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
+predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
 analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet',"exp")
 analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet',"sim")
 

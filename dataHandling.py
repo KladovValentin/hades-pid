@@ -44,16 +44,18 @@ class DataManager():
         self.poorColumnValues = [('tofdedx',-1)]
         #self.poorColumnValues = []
         self.pidsToSelect = [8,9,11,12,14]
-        #self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch','mass2']
+        #self.pidsToSelect = [8,11,14]
+        #self.pidsToSelect = [8,14]
+        self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch','mass2']
         #self.features = ['momentum','charge','theta','phi','tofdedx','tof','distmeta','beta','metamatch','mass2']
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tof','distmeta','beta','metamatch','mass2']
-        self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','metamatch','mass2']
+        #self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','metamatch','mass2']
     
 
     def compareInitialDistributions(self):
         dftSim = pandas.read_parquet(os.path.join("nndata",'simu' + self.dataSetType + '.parquet'))
         dftExp = pandas.read_parquet(os.path.join("nndata",'expu' + self.dataSetType + '.parquet'))
-        dftSim = dftSim.loc[dftSim['pid'] == 3]
+        #dftSim = dftSim.loc[dftSim['pid'] == 3]
         #dftExp = dftExp.loc[dftExp['pid'] == 4]
 
         inputsLength = len(dftSim.columns)-1
@@ -155,9 +157,9 @@ class DataManager():
         for batch in uproot.iterate([rootPath],library="pd"):
             print(fileC)
             if mod == "simLabel":
-                batches.append(batch.sample(frac=0.05*1.0).reset_index(drop=True))
+                batches.append(batch.sample(frac=0.1*1.0).reset_index(drop=True))
             else:
-                batches.append(batch.sample(frac=0.05).reset_index(drop=True))
+                batches.append(batch.sample(frac=0.1).reset_index(drop=True))
             del batch
             fileC = fileC+1
         #
@@ -165,8 +167,8 @@ class DataManager():
         del batches
         
 
-        selection = (setTable['charge']>-10) & (setTable['mass2']>-1.5) & (setTable['mass2']<2.5) & (setTable['momentum']>0.05) & (setTable['momentum']<5) & (setTable['mdcdedx']>0.1) & (setTable['mdcdedx']<50)
-        setTable = setTable.loc[selection].copy()
+        selection = (setTable['beta']<1) & (setTable['charge']>-10) & (setTable['mass2']>-1.5) & (setTable['mass2']<2.5) & (setTable['momentum']>0.05) & (setTable['momentum']<5) & (setTable['mdcdedx']>0.1) & (setTable['mdcdedx']<50)
+        setTable = setTable.loc[selection].copy().reset_index()
         del selection
 
         # selecting pids from sim mix and
@@ -177,7 +179,7 @@ class DataManager():
                 ttables.append(setTable.loc[setTable['pid']==self.pidsToSelect[i]].copy())
                 ttables[i]['pid'] = i
             ttables[2] = ttables[2].sample(frac=0.3).copy() #0.3
-            ttables[3] = ttables[3].sample(frac=0.8).copy()
+            ttables[3] = ttables[3].sample(frac=0.2).copy()
             ttables[4] = ttables[4].sample(frac=0.5).copy()
             try:
                 fullSetTable = pandas.concat(ttables, verify_integrity=True).sort_index()
