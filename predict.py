@@ -229,8 +229,8 @@ def draw_parameter_spread(tables, column):
     #class_hist1 = np.sqrt(np.absolute(tables[2][column].to_numpy()))
     #class_hist2 = np.sqrt(np.absolute(tables[4][column].to_numpy()))
     
-    class_hist0 = tables[1][column].to_numpy()
-    class_hist1 = tables[3][column].to_numpy()
+    class_hist0 = tables[0][column].to_numpy()
+    class_hist1 = tables[2][column].to_numpy()
     class_hist2 = tables[4][column].to_numpy()
 
 
@@ -401,8 +401,9 @@ def analyseOutput(predFileName, experiment_path,mod):
         for j in range(lrange-1):
             if (mod == "sim"):
                 mask2[i] = mask2[i] & (dftCorrExp['pid'] == i)
+            #mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.01 & pT[cN[i]]-pT[cN[(i+j+1)%lrange]]<0.7)
             mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.3)
-        pT.index = pandas.Int64Index(pT.index)
+        #pT.index = pandas.Int64Index(pT.index)
         print (pT.index)
         print (mask2[i].index)
         tablesPClasses.append(pT.loc[mask2[i]].copy())
@@ -482,8 +483,8 @@ def predict(fName, oName):
 #dataSetType = 'NewKIsUsed'
 
 #print("start python predict")
-predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
-predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
+#predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
+#predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
 analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet',"exp")
 analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet',"sim")
 
