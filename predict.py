@@ -394,8 +394,8 @@ def analyseOutput(predFileName, experiment_path,mod):
     mask2 = []
     for i in range(lrange):
         cN = list(pT.columns)
-        mask.append((dftCorrExp['beta']<1) & (dftCorrExp['beta']>0.5))
-        mask2.append((dftCorrExp['beta']<1) & (dftCorrExp['beta']>0.5))
+        mask.append((dftCorrExp['beta']<1.5) & (dftCorrExp['beta']>0.5))
+        mask2.append((dftCorrExp['beta']<1.5) & (dftCorrExp['beta']>0.5))
         #mask.append((dftCorrExp['mass2']<111.2))
         #mask2.append((dftCorrExp['mass2']<111.2))
         for j in range(lrange-1):
@@ -483,8 +483,8 @@ def predict(fName, oName):
 #dataSetType = 'NewKIsUsed'
 
 #print("start python predict")
-#predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
-#predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
+predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
+predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
 analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet',"exp")
 analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet',"sim")
 

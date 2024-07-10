@@ -167,7 +167,7 @@ class DataManager():
         del batches
         
 
-        selection = (setTable['beta']<1) & (setTable['charge']>-10) & (setTable['mass2']>-1.5) & (setTable['mass2']<2.5) & (setTable['momentum']>0.05) & (setTable['momentum']<5) & (setTable['mdcdedx']>0.1) & (setTable['mdcdedx']<50)
+        selection = (setTable['beta']<1.0) & (setTable['charge']>-10) & (setTable['mass2']>-1.5) & (setTable['mass2']<2.5) & (setTable['momentum']>0.05) & (setTable['momentum']<5) & (setTable['mdcdedx']>0.1) & (setTable['mdcdedx']<50)
         setTable = setTable.loc[selection].copy().reset_index()
         del selection
 
@@ -178,9 +178,9 @@ class DataManager():
             for i in range(len(self.pidsToSelect)):
                 ttables.append(setTable.loc[setTable['pid']==self.pidsToSelect[i]].copy())
                 ttables[i]['pid'] = i
-            ttables[2] = ttables[2].sample(frac=0.3).copy() #0.3
-            ttables[3] = ttables[3].sample(frac=0.2).copy()
-            ttables[4] = ttables[4].sample(frac=0.5).copy()
+            ttables[2] = ttables[2].sample(frac=0.1).copy() #0.3
+            ttables[3] = ttables[3].sample(frac=0.1).copy()
+            ttables[4] = ttables[4].sample(frac=0.3).copy()
             try:
                 fullSetTable = pandas.concat(ttables, verify_integrity=True).sort_index()
             except ValueError as e:

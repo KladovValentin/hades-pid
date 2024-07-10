@@ -330,7 +330,7 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
 
             p = float(i_step + start_steps) / total_steps
             #alpha = 2. / (1. + np.exp(-10 * p)) - 1
-            alpha = 0.2
+            alpha = 0.5
 
             (s_x, s_y) = next(sim_iter)
             (e_x, _)   = next(exp_iter)
@@ -368,7 +368,7 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
             #if (epoch // 2 * 2 != epoch):
             #encoder.eval()
             #classifier.eval()
-            total_loss = class_loss + 5*domain_loss
+            total_loss = class_loss + 2*domain_loss
             #total_loss = domain_loss
 
             total_loss.backward()
@@ -436,7 +436,7 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
 def train_NN(simulation_path, experiment_path):
     print("start nn training")
     
-    batch_size = 1024*8
+    batch_size = 1024*4
 
     dftCorr = pandas.read_parquet(os.path.join("nndata",simulation_path))
     dftCorr = dataManager.normalizeDataset(dftCorr).sample(frac=1.0).reset_index(drop=True) # with shuffling
@@ -471,7 +471,7 @@ def train_NN(simulation_path, experiment_path):
     for i in range(nClasses):
         weights[indicesWeights[i]] = math.sqrt(1./nClasses * 1./valuesWeights[i])
     weights[3] = weights[3]/2
-    weights[2] = weights[2]/2
+    weights[2] = weights[2]/2.5
     print(weights)
     
     print(dftCorr.isnull().sum())
@@ -507,7 +507,7 @@ def train_NN(simulation_path, experiment_path):
     #loss_domain = nn.BCELoss()
 
     #optimizer = optim.SGD(nn_model.parameters(), lr=0.0001, momentum=0.9, weight_decay=0.0)
-    optimizer = optim.AdamW(list(encoder.parameters())+list(classifier.parameters())+list(discriminator.parameters()), lr=0.0001, betas=(0.9, 0.999), weight_decay=0.001)
+    optimizer = optim.AdamW(list(encoder.parameters())+list(classifier.parameters())+list(discriminator.parameters()), lr=0.0001, betas=(0.9, 0.999), weight_decay=0.000)
     #optimizer = optim.AdamW(discriminator.parameters(), lr=0.003, betas=(0.9, 0.999), weight_decay=0.0000)
     #optimizer = optim.AdamW(nn_model.parameters(), lr=0.00003, betas=(0.5, 0.9), weight_decay=0.0001)
     #optimizer = optim.Adam(list(encoder.parameters())+list(classifier.parameters())+list(discriminator.parameters()), lr=0.00003, weight_decay=0.0)
@@ -544,7 +544,7 @@ def train_NN(simulation_path, experiment_path):
 
 print("start_train_python")
 
-#dataManager.manageDataset("train_dann")
+dataManager.manageDataset("train_dann")
 
 #dataManager.compareInitialDistributions()
 
