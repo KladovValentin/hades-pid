@@ -41,12 +41,13 @@ def load_dataset(dataTable):
 class DataManager():
     def __init__(self,datasetType) -> None:
         self.dataSetType = datasetType
-        self.poorColumnValues = [('tofdedx',-1)]
-        #self.poorColumnValues = []
+        #self.poorColumnValues = [('tofdedx',-1)]
+        self.poorColumnValues = []
         self.pidsToSelect = [8,9,11,12,14]
         #self.pidsToSelect = [8,11,14]
         #self.pidsToSelect = [8,14]
-        self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch','mass2']
+        #self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch','mass2']
+        self.features = ['momentum','charge','theta','mdcdedx','beta','mass2']
         #self.features = ['momentum','charge','theta','phi','tofdedx','tof','distmeta','beta','metamatch','mass2']
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tof','distmeta','beta','metamatch','mass2']
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','metamatch','mass2']

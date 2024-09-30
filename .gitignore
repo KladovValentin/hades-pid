@@ -1,3 +1,8 @@
 sim*/
 data*/
 *parquet
+*.pt*
+*.d
+*.so
+*.pcm
+*.dat

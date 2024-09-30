@@ -20,8 +20,8 @@ from dataHandling import My_dataset, DataManager, load_dataset
 
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
-print(torch.__version__)  # Check PyTorch version
-print(torch.cuda.get_device_name(0))
+#print(torch.__version__)  # Check PyTorch version
+#print(torch.cuda.get_device_name(0))
 print(f"Using {device} device")
 if device == "cuda:0":
     torch.cuda.empty_cache()
@@ -517,7 +517,7 @@ def train_NN(simulation_path, experiment_path):
 
     print("prepared to train nn")
     #train_DN_model(nn_model, train_loader, loss, optimizer, 10, valid_loader, scheduler = scheduler)
-    train_Proper_DANN_model(encoder,classifier,discriminator, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 5, scheduler)
+    train_Proper_DANN_model(encoder,classifier,discriminator, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 1, scheduler)
     #train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 3, scheduler=scheduler)
 
     torch.onnx.export(nn_model.cpu(),                                # model being run
