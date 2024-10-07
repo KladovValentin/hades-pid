@@ -4,9 +4,10 @@
 
 ### 1. If you are using both header and source files:
 
-#### In your `.h` file:
+In your `.h` file:
 ```
 #include "/lustre/hades/user/vkladov/sub/expKKpiBatchFarm/HNetworkPID.h"
+```
 Inside the analysis class:
 ```
 HNetworkPID* networkPID;
@@ -16,17 +17,17 @@ In your .C or .cc file with the analysis code:
 #include "/lustre/hades/user/vkladov/sub/expKKpiBatchFarm/HNetworkPID.C"
 networkPID = new HNetworkPID();
 ```
-2. If you are using only the source file:
+### 2. If you are using only the source file:
 ```
 #include "/lustre/hades/user/vkladov/sub/expKKpiBatchFarm/HNetworkPID.C"
 networkPID = new HNetworkPID();
 ```
-3. In the Makefile:
+### 3. In the Makefile:
 Make sure to link the necessary library:
 ```
 LIBS+=/lustre/hades/user/vkladov/packages/KinFit/lib/libonnxruntime.so
 ```
-4. Export the environment variable MYHADDIR when launching the job:
+### 4. Export the environment variable MYHADDIR when launching the job:
 ```
 export MYHADDIR=/lustre/hades/user/vkladov/packages/KinFit
 ```
@@ -56,9 +57,9 @@ You can manually check the validity of the input, retrieve the input parameters 
 bool nnInputIsGood(HParticleCand *x); // Check if input data is good
 vector<float> get_NN_Input_Pars(HParticleCand *x); // Get input parameters to NN
 vector<float> getPredictionProbability(vector<float> inputTensorValues); // Get vector of 5 probabilities
-
+```
 
 # Notes
-You can copy the #include files into your own directory and modify them as needed.
-Potentially problematic region: beta > 1. Now mostly fixed (the issue was in mass^2 which is now removed from the list of input parameters). 
-If it is still the issue for you, treat all particles with beta > 1 as pions.
+* You can copy the #include files into your own directory and modify them as needed.
+* Potentially problematic region: beta > 1. Now mostly fixed (the issue was in mass^2 which is now removed from the list of input parameters). If it is still the issue for you, treat all particles with beta > 1 as pions.
+
