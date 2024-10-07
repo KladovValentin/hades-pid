@@ -47,7 +47,7 @@ class DataManager():
         #self.pidsToSelect = [8,11,14]
         #self.pidsToSelect = [8,14]
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch','mass2']
-        self.features = ['momentum','charge','theta','mdcdedx','beta','mass2']
+        self.features = ['momentum','charge','theta','mdcdedx','beta']
         #self.features = ['momentum','charge','theta','phi','tofdedx','tof','distmeta','beta','metamatch','mass2']
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tof','distmeta','beta','metamatch','mass2']
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','metamatch','mass2']
@@ -56,6 +56,10 @@ class DataManager():
     def compareInitialDistributions(self):
         dftSim = pandas.read_parquet(os.path.join("nndata",'simu' + self.dataSetType + '.parquet'))
         dftExp = pandas.read_parquet(os.path.join("nndata",'expu' + self.dataSetType + '.parquet'))
+        #selectionExp = (dftExp['beta']>1)
+        #dftExp = dftExp.loc[selectionExp].copy().reset_index()
+        #selectionSim = (dftSim['beta']>1)
+        #dftSim = dftSim.loc[selectionSim].copy().reset_index()
         #dftSim = dftSim.loc[dftSim['pid'] == 3]
         #dftExp = dftExp.loc[dftExp['pid'] == 4]
 
@@ -63,13 +67,14 @@ class DataManager():
         class_histS = [dftSim[(list(dftSim.columns)[i])].to_numpy() for i in range(inputsLength)]
         class_histE = [dftExp[(list(dftExp.columns)[i])].to_numpy() for i in range(inputsLength)]
 
-        lowBord = [np.mean(class_histS[i]) - 2 * np.std(class_histS[i]) for i in range(inputsLength)]
-        upBord = [np.mean(class_histS[i]) + 2 * np.std(class_histS[i]) + 4*np.std(class_histS[i])/200 for i in range(inputsLength)]
-        step = [4*np.std(class_histS[i])/200 for i in range(inputsLength)]
+        lowBord = [np.mean(class_histS[i]) - 4 * np.std(class_histS[i]) for i in range(inputsLength)]
+        upBord = [np.mean(class_histS[i]) + 4 * np.std(class_histS[i]) + 8*np.std(class_histS[i])/200 for i in range(inputsLength)]
+        step = [8*np.std(class_histS[i])/200 for i in range(inputsLength)]
         print(lowBord[0])
         print(upBord[0])
         print(step[0])
-        bins = [np.arange(-5, 5, 0.01) for i in range(inputsLength)]
+        #bins = [np.arange(-5, 5, 0.01) for i in range(inputsLength)]
+        bins = [np.arange(lowBord[i], upBord[i], step[i]) for i in range(inputsLength)]
 
         # Create a 3x3 grid of subplots
         #fig, axes = plt.subplots(3, 4, figsize=(10, 8))
@@ -168,7 +173,7 @@ class DataManager():
         del batches
         
 
-        selection = (setTable['beta']<1.0) & (setTable['charge']>-10) & (setTable['mass2']>-1.5) & (setTable['mass2']<2.5) & (setTable['momentum']>0.05) & (setTable['momentum']<5) & (setTable['mdcdedx']>0.1) & (setTable['mdcdedx']<50)
+        selection = (setTable['beta']<1.2) & (setTable['charge']>-10) & (setTable['mass2']>-1.5) & (setTable['mass2']<2.5) & (setTable['momentum']>0.05) & (setTable['momentum']<5) & (setTable['mdcdedx']>0.1) & (setTable['mdcdedx']<50)
         setTable = setTable.loc[selection].copy().reset_index()
         del selection
 
@@ -179,6 +184,7 @@ class DataManager():
             for i in range(len(self.pidsToSelect)):
                 ttables.append(setTable.loc[setTable['pid']==self.pidsToSelect[i]].copy())
                 ttables[i]['pid'] = i
+            #ttables[1] = ttables[1].sample(frac=0.8).copy()
             ttables[2] = ttables[2].sample(frac=0.1).copy() #0.3
             ttables[3] = ttables[3].sample(frac=0.1).copy()
             ttables[4] = ttables[4].sample(frac=0.3).copy()

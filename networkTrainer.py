@@ -330,7 +330,7 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
 
             p = float(i_step + start_steps) / total_steps
             #alpha = 2. / (1. + np.exp(-10 * p)) - 1
-            alpha = 0.5
+            alpha = 0.2
 
             (s_x, s_y) = next(sim_iter)
             (e_x, _)   = next(exp_iter)
@@ -368,7 +368,7 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
             #if (epoch // 2 * 2 != epoch):
             #encoder.eval()
             #classifier.eval()
-            total_loss = class_loss + 2*domain_loss
+            total_loss = class_loss + 5*domain_loss
             #total_loss = domain_loss
 
             total_loss.backward()
@@ -470,8 +470,8 @@ def train_NN(simulation_path, experiment_path):
     weights = np.zeros(nClasses).astype(np.float32)
     for i in range(nClasses):
         weights[indicesWeights[i]] = math.sqrt(1./nClasses * 1./valuesWeights[i])
-    weights[3] = weights[3]/2
-    weights[2] = weights[2]/2.5
+    weights[3] = weights[3]/3
+    weights[2] = weights[2]/3
     print(weights)
     
     print(dftCorr.isnull().sum())
@@ -546,7 +546,7 @@ print("start_train_python")
 
 dataManager.manageDataset("train_dann")
 
-#dataManager.compareInitialDistributions()
+dataManager.compareInitialDistributions()
 
-train_NN('simu' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
+#train_NN('simu' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 

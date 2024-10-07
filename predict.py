@@ -402,7 +402,7 @@ def analyseOutput(predFileName, experiment_path,mod):
             if (mod == "sim"):
                 mask2[i] = mask2[i] & (dftCorrExp['pid'] == i)
             #mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.01 & pT[cN[i]]-pT[cN[(i+j+1)%lrange]]<0.7)
-            mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.3)
+            mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.0)
         #pT.index = pandas.Int64Index(pT.index)
         print (pT.index)
         print (mask2[i].index)
@@ -420,7 +420,7 @@ def analyseOutput(predFileName, experiment_path,mod):
     
     #draw_probabilities_spread(tablesPClasses[1],tablesPClasses[1])
     if (mod == "sim"):
-        draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
+        #draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
         draw_confusion_matrix(np.array(mask),np.array(mask2))
         draw_2d_param_spread(tablesClasses2,'momentum','mdcdedx')
         draw_2d_param_spread(tablesClasses2,'momentum','beta')
@@ -428,7 +428,7 @@ def analyseOutput(predFileName, experiment_path,mod):
     elif (mod == "exp"):
         draw_2d_param_spread(tablesClasses,'momentum','mdcdedx')
         draw_2d_param_spread(tablesClasses,'momentum','beta')
-        draw_parameter_spread(tablesClasses,'mass2')
+        #draw_parameter_spread(tablesClasses,'mass2')
     #draw_parameter_spread(tablesClasses,'tof')
     #draw_parameter_spread(tablesClasses2,'mass2')
     #plt.show()
@@ -483,8 +483,8 @@ def predict(fName, oName):
 #dataSetType = 'NewKIsUsed'
 
 #print("start python predict")
-predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
-predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
+#predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
+#predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
 analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet',"exp")
 analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet',"sim")
 
