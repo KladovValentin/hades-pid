@@ -1,4 +1,4 @@
-# Network Usage Guide
+# How to use
 
 ## Setup
 
@@ -33,7 +33,7 @@ export MYHADDIR=/lustre/hades/user/vkladov/packages/KinFit
 ```
 Alternatively, if you use your own third-party libraries, you can copy all ONNX-related files to your own lib.
 
-# Usage Example
+## Usage details
 The network uses normalized PID indices for particles:
 
 pi+, pi-, K+, K-, p correspond to the network output indices: (0,1,2,3,4).
@@ -48,18 +48,14 @@ for (HParticleCand* x : particles){
     int pClassStrict = networkPID->getPredictionFull(x); 
 }
 ```
-## Error Handling:
-The network will return -1 if the input data is invalid (for example, when values are out of expected bounds like momentum or beta > 1).
-Additional Functions:
-You can manually check the validity of the input, retrieve the input parameters for the neural network, and get the network's output probabilities:
-
+## Notes:
+* The network will return -1 if the input data is invalid (too off: e.g. beta > 1.5, dedx > 50 etc).
+* You can manually check the validity of the input, retrieve the input parameters for the neural network, and get the network's output probabilities:
 ```
 bool nnInputIsGood(HParticleCand *x); // Check if input data is good
 vector<float> get_NN_Input_Pars(HParticleCand *x); // Get input parameters to NN
 vector<float> getPredictionProbability(vector<float> inputTensorValues); // Get vector of 5 probabilities
 ```
-
-# Notes
 * You can copy the #include files into your own directory and modify them as needed.
 * Potentially problematic region: beta > 1. Now mostly fixed (the issue was in mass^2 which is now removed from the list of input parameters). If it is still the issue for you, treat all particles with beta > 1 as pions.
 
