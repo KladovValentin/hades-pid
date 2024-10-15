@@ -147,7 +147,10 @@ class Classifier(nn.Module):
             nn.BatchNorm1d(128),
             #nn.Dropout(0.5),
             nn.LeakyReLU(inplace=True),
-            nn.Linear(128, 128),
+            nn.Linear(128, 256),
+            nn.BatchNorm1d(256),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(256, 128),
             nn.BatchNorm1d(128),
             nn.LeakyReLU(inplace=True),
             nn.Linear(128, output_dim)

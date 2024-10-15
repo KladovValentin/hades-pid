@@ -330,7 +330,7 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
 
             p = float(i_step + start_steps) / total_steps
             #alpha = 2. / (1. + np.exp(-10 * p)) - 1
-            alpha = 0.2
+            alpha = 0.5
 
             (s_x, s_y) = next(sim_iter)
             (e_x, _)   = next(exp_iter)
@@ -368,7 +368,7 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
             #if (epoch // 2 * 2 != epoch):
             #encoder.eval()
             #classifier.eval()
-            total_loss = class_loss + 5*domain_loss
+            total_loss = class_loss + 2*domain_loss
             #total_loss = domain_loss
 
             total_loss.backward()
@@ -436,7 +436,7 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
 def train_NN(simulation_path, experiment_path):
     print("start nn training")
     
-    batch_size = 1024*4
+    batch_size = 1024*16
 
     dftCorr = pandas.read_parquet(os.path.join("nndata",simulation_path))
     dftCorr = dataManager.normalizeDataset(dftCorr).sample(frac=1.0).reset_index(drop=True) # with shuffling
@@ -470,7 +470,7 @@ def train_NN(simulation_path, experiment_path):
     weights = np.zeros(nClasses).astype(np.float32)
     for i in range(nClasses):
         weights[indicesWeights[i]] = math.sqrt(1./nClasses * 1./valuesWeights[i])
-    weights[3] = weights[3]/3
+    weights[3] = weights[3]/4
     weights[2] = weights[2]/3
     print(weights)
     
@@ -507,17 +507,17 @@ def train_NN(simulation_path, experiment_path):
     #loss_domain = nn.BCELoss()
 
     #optimizer = optim.SGD(nn_model.parameters(), lr=0.0001, momentum=0.9, weight_decay=0.0)
-    optimizer = optim.AdamW(list(encoder.parameters())+list(classifier.parameters())+list(discriminator.parameters()), lr=0.0001, betas=(0.9, 0.999), weight_decay=0.000)
+    optimizer = optim.AdamW(list(encoder.parameters())+list(classifier.parameters())+list(discriminator.parameters()), lr=0.001, betas=(0.9, 0.999), weight_decay=0.0001)
     #optimizer = optim.AdamW(discriminator.parameters(), lr=0.003, betas=(0.9, 0.999), weight_decay=0.0000)
     #optimizer = optim.AdamW(nn_model.parameters(), lr=0.00003, betas=(0.5, 0.9), weight_decay=0.0001)
     #optimizer = optim.Adam(list(encoder.parameters())+list(classifier.parameters())+list(discriminator.parameters()), lr=0.00003, weight_decay=0.0)
 
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.3)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.2)
     #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, threshold=0.2, factor=0.2)
 
     print("prepared to train nn")
     #train_DN_model(nn_model, train_loader, loss, optimizer, 10, valid_loader, scheduler = scheduler)
-    train_Proper_DANN_model(encoder,classifier,discriminator, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 1, scheduler)
+    train_Proper_DANN_model(encoder,classifier,discriminator, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 3, scheduler)
     #train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 3, scheduler=scheduler)
 
     torch.onnx.export(nn_model.cpu(),                                # model being run
@@ -546,7 +546,7 @@ print("start_train_python")
 
 dataManager.manageDataset("train_dann")
 
-dataManager.compareInitialDistributions()
+#dataManager.compareInitialDistributions()
 
-#train_NN('simu' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
+train_NN('simu' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 

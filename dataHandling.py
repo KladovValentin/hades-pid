@@ -41,13 +41,14 @@ def load_dataset(dataTable):
 class DataManager():
     def __init__(self,datasetType) -> None:
         self.dataSetType = datasetType
-        #self.poorColumnValues = [('tofdedx',-1)]
-        self.poorColumnValues = []
+        self.poorColumnValues = [('tofdedx',-1)]
+        #self.poorColumnValues = []
         self.pidsToSelect = [8,9,11,12,14]
         #self.pidsToSelect = [8,11,14]
         #self.pidsToSelect = [8,14]
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch','mass2']
-        self.features = ['momentum','charge','theta','mdcdedx','beta']
+        #self.features = ['momentum','charge','theta','mdcdedx','beta']
+        self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch']
         #self.features = ['momentum','charge','theta','phi','tofdedx','tof','distmeta','beta','metamatch','mass2']
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tof','distmeta','beta','metamatch','mass2']
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','metamatch','mass2']
@@ -163,9 +164,9 @@ class DataManager():
         for batch in uproot.iterate([rootPath],library="pd"):
             print(fileC)
             if mod == "simLabel":
-                batches.append(batch.sample(frac=0.1*1.0).reset_index(drop=True))
+                batches.append(batch.sample(frac=0.5*0.5).reset_index(drop=True))
             else:
-                batches.append(batch.sample(frac=0.1).reset_index(drop=True))
+                batches.append(batch.sample(frac=0.5).reset_index(drop=True))
             del batch
             fileC = fileC+1
         #
@@ -173,7 +174,7 @@ class DataManager():
         del batches
         
 
-        selection = (setTable['beta']<1.2) & (setTable['charge']>-10) & (setTable['mass2']>-1.5) & (setTable['mass2']<2.5) & (setTable['momentum']>0.05) & (setTable['momentum']<5) & (setTable['mdcdedx']>0.1) & (setTable['mdcdedx']<50)
+        selection = (setTable['beta']<1.3) & (setTable['charge']>-10) & (setTable['mass2']>-1.5) & (setTable['mass2']<2.5) & (setTable['momentum']>0.05) & (setTable['momentum']<5) & (setTable['mdcdedx']>0.1) & (setTable['mdcdedx']<15)
         setTable = setTable.loc[selection].copy().reset_index()
         del selection
 
@@ -185,9 +186,9 @@ class DataManager():
                 ttables.append(setTable.loc[setTable['pid']==self.pidsToSelect[i]].copy())
                 ttables[i]['pid'] = i
             #ttables[1] = ttables[1].sample(frac=0.8).copy()
-            ttables[2] = ttables[2].sample(frac=0.1).copy() #0.3
-            ttables[3] = ttables[3].sample(frac=0.1).copy()
-            ttables[4] = ttables[4].sample(frac=0.3).copy()
+            ttables[2] = ttables[2].sample(frac=0.2).copy() #0.3
+            ttables[3] = ttables[3].sample(frac=0.2).copy()
+            ttables[4] = ttables[4].sample(frac=0.55).copy()
             try:
                 fullSetTable = pandas.concat(ttables, verify_integrity=True).sort_index()
             except ValueError as e:

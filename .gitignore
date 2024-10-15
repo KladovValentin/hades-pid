@@ -1,6 +1,9 @@
 sim*/
 data*/
+nndata/
 *parquet
+test*
+temp*
 *.pt*
 *.d
 *.so

@@ -290,8 +290,9 @@ def draw_2d_param_spread(tables, column1, column2):
     print(len(class_hist2[0]))
     print(class_hist2)
     #plt.hist2d(class_hist2[0],class_hist2[1], bins = 300, cmap = "RdYlBu_r", norm = colors.LogNorm())
-    #plt.ylim([0,1.5])
-    plt.show()
+    if (column2 == "beta"):
+        plt.ylim([0,1.5])
+    plt.show() 
 
 
 def draw_feature_distribution(tablesS, tablesE):
@@ -394,8 +395,8 @@ def analyseOutput(predFileName, experiment_path,mod):
     mask2 = []
     for i in range(lrange):
         cN = list(pT.columns)
-        mask.append((dftCorrExp['beta']<1.5) & (dftCorrExp['beta']>0.5))
-        mask2.append((dftCorrExp['beta']<1.5) & (dftCorrExp['beta']>0.5))
+        mask.append((dftCorrExp['beta']<1.5) & (dftCorrExp['beta']>0.1))
+        mask2.append((dftCorrExp['beta']<1.5) & (dftCorrExp['beta']>0.1))
         #mask.append((dftCorrExp['mass2']<111.2))
         #mask2.append((dftCorrExp['mass2']<111.2))
         for j in range(lrange-1):
@@ -483,8 +484,8 @@ def predict(fName, oName):
 #dataSetType = 'NewKIsUsed'
 
 #print("start python predict")
-#predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
-#predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
+predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
+predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
 analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet',"exp")
 analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet',"sim")
 
