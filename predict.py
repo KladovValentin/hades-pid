@@ -20,6 +20,8 @@ from tqdm import trange
 import math
 import os
 
+import ROOT
+
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 torch.cuda.empty_cache()
@@ -66,7 +68,9 @@ def checkDistributions():
 def makePredicionList(experiment_path, savePath):
     dftCorrExp = pandas.read_parquet(os.path.join("nndata",experiment_path))
 
-    print(dftCorrExp.iloc[0])
+    #dftCorrExp['charge'] = dftCorrExp['charge'].replace(-1,1)
+
+    #print(dftCorrExp.iloc[0])
     
     dftCorrExp = dataManager.normalizeDataset(dftCorrExp)
 
@@ -80,7 +84,7 @@ def makePredicionList(experiment_path, savePath):
     #print(dftCorrExp)
 
     exp_dataset = My_dataset(load_dataset(dftCorrExp))
-    exp_dataLoader = DataLoader(exp_dataset, batch_size=512, drop_last=False)
+    exp_dataLoader = DataLoader(exp_dataset, batch_size=1024*32, drop_last=False)
 
     #nClasses = dftCorrExp[list(dftCorrExp.columns)[-1]].nunique()
     nClasses = 5
@@ -249,11 +253,71 @@ def draw_parameter_spread(tables, column):
     plt.xlabel('mass2')
     plt.show()
 
+    canvas = ROOT.TCanvas("canvas", "Canvas Title", 800, 600)
+    hist0 = ROOT.TH1F("hist0", "p;#beta_{measured}-#beta{expected}", 300, -2, 2)
+    hist1 = ROOT.TH1F("hist1", "K^{+};#beta_{measured}-#beta{expected}", 100, -2, 2)
+    hist2 = ROOT.TH1F("hist2", "#pi^{+};#beta_{measured}-#beta{expected}", 300, -2, 2)
+    for i in range(len(class_hist0)):
+        hist0.Fill(class_hist0[i])
+    for i in range(len(class_hist1)):
+        hist1.Fill(class_hist1[i])
+    for i in range(len(class_hist2)):
+        hist2.Fill(class_hist2[i])
+    hist0.Draw("colz")
+    hist2.Draw("colzsame")
+    hist1.Draw("colzsame")
+    canvas.Update()
+    input()
+
+
+def draw_parameters_spread(tables, column,column1,column2):
+    #class_hist0 = np.sqrt(np.absolute(tables[0][column].to_numpy()))
+    #class_hist1 = np.sqrt(np.absolute(tables[2][column].to_numpy()))
+    #class_hist2 = np.sqrt(np.absolute(tables[4][column].to_numpy()))
+    
+    class_hist0 = tables[0][column].to_numpy()
+    class_hist1 = tables[2][column1].to_numpy()
+    class_hist2 = tables[4][column2].to_numpy()
+
+
+    class_histAll = np.concatenate((class_hist0,class_hist1),axis=0)
+
+    bins = np.linspace(-1,1,500)
+
+    #plt.hist(class_histAll[:], bins, color='#660404',
+    #                        alpha=0.7, rwidth=1.0, label = '$Sum$')
+    plt.hist(class_hist0[:], bins, color='#0504aa',
+                            alpha=0.7, rwidth=1.0, label = '$\pi$')
+    plt.hist(class_hist1[:], bins, color='#228B22',
+                            alpha=0.7, rwidth=1.0, label = '$K$')
+    plt.hist(class_hist2[:], bins, color='#cf4c00',
+                            alpha=0.7, rwidth=1.0, label = '$p$')
+    plt.xlabel('mass2')
+    plt.show()
+
+    canvas = ROOT.TCanvas("canvas", "Canvas Title", 800, 600)
+    hist0 = ROOT.TH1F("hist0", "p;#beta_{measured}-#beta{expected}", 300, -2, 2)
+    hist1 = ROOT.TH1F("hist1", "K^{+};#beta_{measured}-#beta{expected}", 100, -2, 2)
+    hist2 = ROOT.TH1F("hist2", "#pi^{+};#beta_{measured}-#beta{expected}", 300, -2, 2)
+    for i in range(len(class_hist0)):
+        hist0.Fill(class_hist0[i])
+    for i in range(len(class_hist1)):
+        hist1.Fill(class_hist1[i])
+    for i in range(len(class_hist2)):
+        hist2.Fill(class_hist2[i])
+    hist0.Draw("colz")
+    hist2.Draw("colzsame")
+    hist1.Draw("colzsame")
+    canvas.Update()
+    input()
+
+
 
 def draw_confusion_matrix(maskPrediction,maskTarget):
-    confusionMatrix = np.zeros((5,5))
-    for i in range(5):
-        for j in range(5):
+    nClasses = 5
+    confusionMatrix = np.zeros((nClasses,nClasses))
+    for i in range(nClasses):
+        for j in range(nClasses):
             confusionMatrix[i][j] = np.around(100*np.count_nonzero(np.multiply(maskPrediction[i],maskTarget[j]))/np.count_nonzero(maskTarget[j]),decimals=3)
     print(confusionMatrix)
     #confusionMatrix = np.array(confusionMatrix)
@@ -275,17 +339,29 @@ def draw_2d_param_spread(tables, column1, column2):
 
     if (column2 == "beta"):
         x = np.linspace(0,1,100)
+        y = 1./np.sqrt(1.+(0.13957**2)/(x**2))
+        plt.xlabel("P [GeV/c]")
+        plt.ylabel(r"$\beta$")
+        plt.plot(x,y,'black')
+
+        x = np.linspace(0,1,100)
         y = 1./np.sqrt(1.+(0.195**2)/(x**2)) * (1.-0.02*np.exp(-((x-0.55)*(x-0.55))/2./(0.3*0.3)))
         plt.plot(x,y,'r')
+
         xk = np.linspace(0,1,100)
         yk = 1./np.sqrt(1.+(0.493**2)/(xk**2))
-        plt.plot(xk,yk,'r')
+        plt.plot(xk,yk,'black')
+
         y1 = 1./np.sqrt(1.+(0.685**2)/(x**2)) * (1.-0.02*np.exp(-((x-0.95)*(x-0.95))/2./(0.3*0.3)))
         plt.plot(x,y1,'r')
 
-    #h0 = plt.hist2d(class_hist1[0],class_hist1[1], bins = 300, cmin=5, cmap=plt.cm.jet)
+        xp = np.linspace(0,1,100)
+        yp = 1./np.sqrt(1.+(0.938272**2)/(xp**2))
+        plt.plot(xp,yp,'black')
+
     h1 = plt.hist2d(class_hist0[0],class_hist0[1], bins = 300, cmin=5, cmap=plt.cm.jet)
     h2 = plt.hist2d(class_hist2[0],class_hist2[1], bins = 100, cmin=1, cmap=plt.cm.jet)
+    #h0 = plt.hist2d(class_hist1[0],class_hist1[1], bins = 300, cmin=5, cmap=plt.cm.jet)
     plt.colorbar(h2[3])
     print(len(class_hist2[0]))
     print(class_hist2)
@@ -293,6 +369,28 @@ def draw_2d_param_spread(tables, column1, column2):
     if (column2 == "beta"):
         plt.ylim([0,1.5])
     plt.show() 
+
+    canvas = ROOT.TCanvas("canvas", "Canvas Title", 1400, 1000)
+    if (column2 == "beta"):
+        hist0 = ROOT.TH2F("hist0", "p;P [GeV/c];#beta", 300, 0, 5, 300, 0.2, 1.2)
+        hist1 = ROOT.TH2F("hist1", "K^{+};P [GeV/c];#beta", 100, 0, 5, 100, 0.2, 1.2)
+        hist2 = ROOT.TH2F("hist2", "#pi^{+};P [GeV/c];#beta", 300, 0, 5, 300, 0.2, 1.2)
+    elif ("newCol" in column2):
+        hist0 = ROOT.TH2F("hist0", "p;P [GeV/c];#beta_{expected}-#beta_{measured}", 300, 0, 5, 300, -0.5, 0.5)
+        hist1 = ROOT.TH2F("hist1", "K^{+};P [GeV/c];#beta_{expected}-#beta_{measured}", 100, 0, 5, 100, -0.5, 0.5)
+        hist2 = ROOT.TH2F("hist2", "#pi^{+};P [GeV/c];#beta_{expected}-#beta_{measured}", 300, 0, 5, 300, -0.5, 0.5)
+    for i in range(len(class_hist1[0])):
+        hist0.Fill(class_hist1[0][i],class_hist1[1][i])
+    for i in range(len(class_hist2[0])):
+        hist1.Fill(class_hist2[0][i],class_hist2[1][i])
+    for i in range(len(class_hist0[0])):
+        hist2.Fill(class_hist0[0][i],class_hist0[1][i])
+    hist0.Draw("colz")
+    hist2.Draw("colzsame")
+    hist1.Draw("colzsame")
+    canvas.Update()
+    input()
+
 
 
 def draw_feature_distribution(tablesS, tablesE):
@@ -382,6 +480,7 @@ def write_output(outputs, mod, enlist):
 def analyseOutput(predFileName, experiment_path,mod):
     pT = pandas.read_parquet(os.path.join("nndata",predFileName))
     dftCorrExp = pandas.read_parquet(os.path.join("nndata",experiment_path)).reset_index()
+    #dftCorrExp['charge'] = dftCorrExp['charge'].replace(-1,1)
     print(pT)
     print(dftCorrExp)
     plt.show()
@@ -395,15 +494,17 @@ def analyseOutput(predFileName, experiment_path,mod):
     mask2 = []
     for i in range(lrange):
         cN = list(pT.columns)
-        mask.append((dftCorrExp['beta']<1.5) & (dftCorrExp['beta']>0.1))
-        mask2.append((dftCorrExp['beta']<1.5) & (dftCorrExp['beta']>0.1))
+        #mask.append((dftCorrExp['beta']<1.5) & (dftCorrExp['beta']>0.1))
+        #mask2.append((dftCorrExp['beta']<1.5) & (dftCorrExp['beta']>0.1))
+        mask.append((dftCorrExp['charge']<1.5) & (dftCorrExp['charge']>-1.5))
+        mask2.append((dftCorrExp['charge']<1.5) & (dftCorrExp['charge']>-1.5))
         #mask.append((dftCorrExp['mass2']<111.2))
         #mask2.append((dftCorrExp['mass2']<111.2))
         for j in range(lrange-1):
             if (mod == "sim"):
                 mask2[i] = mask2[i] & (dftCorrExp['pid'] == i)
             #mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.01 & pT[cN[i]]-pT[cN[(i+j+1)%lrange]]<0.7)
-            mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.0)
+            mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.1)
         #pT.index = pandas.Int64Index(pT.index)
         print (pT.index)
         print (mask2[i].index)
@@ -412,24 +513,30 @@ def analyseOutput(predFileName, experiment_path,mod):
         tablesClasses2.append(dftCorrExp.loc[mask2[i]].copy())
         #tablesClasses3.append(dftCorrExp)
     #print(tablesClasses[0])
-    #print(str(tablesClasses[0].shape[0]) + "," + str(tablesClasses[1].shape[0]) + "," +str(tablesClasses[2].shape[0]) + "," +str(tablesClasses[3].shape[0]) + "," +str(tablesClasses[4].shape[0]))
+    print(str(tablesClasses[0].shape[0]) + "," + str(tablesClasses[1].shape[0]) + "," +str(tablesClasses[2].shape[0]) + "," +str(tablesClasses[3].shape[0]) + "," +str(tablesClasses[4].shape[0]))
     #sumEvs = (tablesClasses[0].shape[0] + tablesClasses[1].shape[0] + tablesClasses[2].shape[0] + tablesClasses[3].shape[0] + tablesClasses[4].shape[0])/5
     #print(str(sumEvs / tablesClasses[0].shape[0]) + "," + str(sumEvs /tablesClasses[1].shape[0]) + "," +str(sumEvs /tablesClasses[2].shape[0]) + "," +str(sumEvs /tablesClasses[3].shape[0]) + "," +str(sumEvs /tablesClasses[4].shape[0]))
 
-    print(tablesClasses2)
-    print(tablesPClasses)
+    #print(tablesClasses2)
+    #print(tablesPClasses)
     
     #draw_probabilities_spread(tablesPClasses[1],tablesPClasses[1])
     if (mod == "sim"):
         #draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
         draw_confusion_matrix(np.array(mask),np.array(mask2))
-        draw_2d_param_spread(tablesClasses2,'momentum','mdcdedx')
-        draw_2d_param_spread(tablesClasses2,'momentum','beta')
+        #draw_2d_param_spread(tablesClasses,'momentum','mdcdedx')
+        #draw_2d_param_spread(tablesClasses,'momentum','beta')
+        #draw_2d_param_spread(tablesClasses,'momentum','newColK')
         #draw_parameter_spread(tablesClasses,'mass2')
+        print("sim")
     elif (mod == "exp"):
-        draw_2d_param_spread(tablesClasses,'momentum','mdcdedx')
+        #draw_2d_param_spread(tablesClasses,'momentum','mdcdedx')
         draw_2d_param_spread(tablesClasses,'momentum','beta')
+        draw_2d_param_spread(tablesClasses,'momentum','newColK')
         #draw_parameter_spread(tablesClasses,'mass2')
+        #draw_parameter_spread(tablesClasses,'newColK')
+        #draw_parameters_spread(tablesClasses,'newColPi1','newColK','newColp')
+        print("exp")
     #draw_parameter_spread(tablesClasses,'tof')
     #draw_parameter_spread(tablesClasses2,'mass2')
     #plt.show()
@@ -484,10 +591,10 @@ def predict(fName, oName):
 #dataSetType = 'NewKIsUsed'
 
 #print("start python predict")
-predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
-predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
-analyseOutput('predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet',"exp")
-analyseOutput('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet',"sim")
+#predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
+#predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
+analyseOutput('predictedExp' + dataSetType + '.parquet','expuTest' + dataSetType + '.parquet',"exp")
+analyseOutput('predictedSim' + dataSetType + '.parquet','simuTest' + dataSetType + '.parquet',"sim")
 
 #analyseExpAndSim('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet', 'predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 

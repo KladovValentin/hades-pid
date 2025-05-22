@@ -330,6 +330,7 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
 
             p = float(i_step + start_steps) / total_steps
             #alpha = 2. / (1. + np.exp(-10 * p)) - 1
+            #alpha = 0.1 / (1. + np.exp(-10 * p)) - 1
             alpha = 0.5
 
             (s_x, s_y) = next(sim_iter)
@@ -344,9 +345,6 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
             domain_labele = torch.ones(len(e_x)).long().to(device)
             combined_domain_label = torch.cat((domain_label, domain_labele), 0).to(device)
 
-
-            optimizer.zero_grad()
-
             combined_feature = encoder(combined_x)
             sim_feature = encoder(s_x)
             exp_feature = encoder(e_x)
@@ -360,34 +358,44 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
             domain_pred = discriminator(combined_feature, alpha)
             domain_preds = discriminator(sim_feature, alpha)
             domain_prede = discriminator(exp_feature, alpha)
-            #print(s_class)
-            #print(domain_prede)
-            domain_loss = lossDomain(domain_preds,domain_label) + lossDomain(domain_prede,domain_labele)
-            #domain_loss = lossDomain(domain_pred, combined_domain_label)
-            
-            #if (epoch // 2 * 2 != epoch):
-            #encoder.eval()
-            #classifier.eval()
-            total_loss = class_loss + 2*domain_loss
-            #total_loss = domain_loss
 
-            total_loss.backward()
-            optimizer.step()
-            
-            #indicesD = torch.argmax(domain_pred, 1)
-            #running_accD = torch.sum(indicesD == combined_domain_label)/(len(combined_domain_label))
+
+
             indicesDs = torch.max(domain_preds, 1)[1]
             running_accDs = torch.sum(indicesDs == domain_label)/(len(domain_label))
             indicesDe = torch.max(domain_prede, 1)[1]
             running_accDe = torch.sum(indicesDe == domain_labele)/(len(domain_labele))
 
+            #print(s_class)
+            #print(domain_prede)
+            domain_loss = lossDomain(domain_preds,domain_label) + lossDomain(domain_prede,domain_labele)# + abs(running_accDs-running_accDe)
+            #domain_loss = lossDomain(domain_pred, combined_domain_label)
+            
+            #if (epoch // 2 * 2 != epoch):
+            #encoder.eval()
+            #classifier.eval()
+            total_loss = class_loss + 2 * domain_loss
+            #total_loss = domain_loss
+
+            optimizer.zero_grad()
+            total_loss.backward()
+            optimizer.step()
+            
+            #indicesD = torch.argmax(domain_pred, 1)
+            #running_accD = torch.sum(indicesD == combined_domain_label)/(len(combined_domain_label))
+
             indices = torch.max(s_class, 1)[1]
-            running_acc = torch.sum(indices==s_y)/len(s_y)
+            class_mask = (s_y == 0)
+            class_mask1 = (s_y == 3)
+            correct_predictions = torch.sum((indices == s_y) & class_mask)
+            correct_predictions1 = torch.sum((indices == s_y) & class_mask1)
+            running_acc = correct_predictions.float()/torch.sum(class_mask).item()
+            running_acc1 = correct_predictions1.float()/torch.sum(class_mask1).item()
 
             train_history.append(1-running_acc.cpu())
             loss_history.append(float(total_loss))
 
-            tepoch.set_postfix(loss=float(class_loss), lossDom=float(domain_loss), acc=float(running_acc)*100, accD=float(running_accDs)*100, accD1=float(running_accDe)*100)
+            tepoch.set_postfix(loss=float(class_loss), lossDom=float(domain_loss), acc=float(running_acc)*100, acc1=float(running_acc1)*100, accD=float(running_accDs)*100, accD1=float(running_accDe)*100)
 
         if scheduler is not None:
             scheduler.step()
@@ -436,7 +444,7 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
 def train_NN(simulation_path, experiment_path):
     print("start nn training")
     
-    batch_size = 1024*16
+    batch_size = 1024*32
 
     dftCorr = pandas.read_parquet(os.path.join("nndata",simulation_path))
     dftCorr = dataManager.normalizeDataset(dftCorr).sample(frac=1.0).reset_index(drop=True) # with shuffling
@@ -461,17 +469,21 @@ def train_NN(simulation_path, experiment_path):
     exp_valLoader = DataLoader(exp_valset, batch_size=int(batch_size), drop_last=False)
 
     nClasses = dftCorr[list(dftCorr.columns)[-1]].nunique()
-    print(nClasses)
+    print("nclasses is ", nClasses)
 
     valueCounts = dftCorr[list(dftCorr.columns)[-1]].value_counts(normalize=True)
     print(dftCorr[list(dftCorr.columns)[-1]].value_counts(normalize=False))
     indicesWeights = valueCounts.index.to_numpy()
     valuesWeights = valueCounts.values
     weights = np.zeros(nClasses).astype(np.float32)
+    beta = 0.99 #hyperparameter for smart reweightening
     for i in range(nClasses):
-        weights[indicesWeights[i]] = math.sqrt(1./nClasses * 1./valuesWeights[i])
-    weights[3] = weights[3]/4
-    weights[2] = weights[2]/3
+        #weights[indicesWeights[i]] = math.sqrt(1./nClasses * 1./valuesWeights[i])
+        #weights[indicesWeights[i]] = 1./nClasses * 1./valuesWeights[i]
+        weights[indicesWeights[i]] = 1./nClasses * (1.-beta)/(1-beta**valuesWeights[i])
+    weights[2] = weights[2]/4
+    weights[3] = weights[3]/6
+    weights = [1,1,1,0.5,1]
     print(weights)
     
     print(dftCorr.isnull().sum())
@@ -507,7 +519,7 @@ def train_NN(simulation_path, experiment_path):
     #loss_domain = nn.BCELoss()
 
     #optimizer = optim.SGD(nn_model.parameters(), lr=0.0001, momentum=0.9, weight_decay=0.0)
-    optimizer = optim.AdamW(list(encoder.parameters())+list(classifier.parameters())+list(discriminator.parameters()), lr=0.001, betas=(0.9, 0.999), weight_decay=0.0001)
+    optimizer = optim.AdamW(list(encoder.parameters())+list(classifier.parameters())+list(discriminator.parameters()), lr=0.0004, betas=(0.5, 0.99), weight_decay=0.0001)
     #optimizer = optim.AdamW(discriminator.parameters(), lr=0.003, betas=(0.9, 0.999), weight_decay=0.0000)
     #optimizer = optim.AdamW(nn_model.parameters(), lr=0.00003, betas=(0.5, 0.9), weight_decay=0.0001)
     #optimizer = optim.Adam(list(encoder.parameters())+list(classifier.parameters())+list(discriminator.parameters()), lr=0.00003, weight_decay=0.0)
@@ -517,7 +529,7 @@ def train_NN(simulation_path, experiment_path):
 
     print("prepared to train nn")
     #train_DN_model(nn_model, train_loader, loss, optimizer, 10, valid_loader, scheduler = scheduler)
-    train_Proper_DANN_model(encoder,classifier,discriminator, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 3, scheduler)
+    train_Proper_DANN_model(encoder,classifier,discriminator, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 2, scheduler)
     #train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 3, scheduler=scheduler)
 
     torch.onnx.export(nn_model.cpu(),                                # model being run

@@ -110,6 +110,7 @@ class Encoder(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
 
+        
         self.feature = nn.Sequential(
             nn.Linear(input_dim, 256, bias=True),
             #nn.BatchNorm1d(256),
@@ -119,6 +120,8 @@ class Encoder(nn.Module):
             #nn.BatchNorm1d(512),
             nn.LeakyReLU(inplace=True),
             nn.Linear(512, 256),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(256, 256),
             #nn.BatchNorm1d(256),
             nn.LeakyReLU(inplace=True),
             nn.Linear(256, output_dim),
@@ -128,6 +131,26 @@ class Encoder(nn.Module):
             #nn.Dropout(0.5),
             #nn.LeakyReLU(inplace=True)
         )
+        """
+        self.feature = nn.Sequential(
+            nn.Linear(input_dim, 64, bias=True),
+            #nn.BatchNorm1d(256),
+            #nn.Dropout(0.5),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(64, 32),
+            #nn.BatchNorm1d(512),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(32, 16),
+            #nn.BatchNorm1d(256),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(16, output_dim),
+            #nn.BatchNorm1d(output_dim),
+            #nn.LeakyReLU(inplace=True),
+            #nn.Linear(128, 128)
+            #nn.Dropout(0.5),
+            #nn.LeakyReLU(inplace=True)
+        )
+        """
 
     def forward(self, input_data):
         feature = self.feature(input_data)
@@ -142,6 +165,7 @@ class Classifier(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
 
+        
         self.class_classifier = nn.Sequential(
             nn.Linear(input_dim, 128, bias=True),
             nn.BatchNorm1d(128),
@@ -155,6 +179,21 @@ class Classifier(nn.Module):
             nn.LeakyReLU(inplace=True),
             nn.Linear(128, output_dim)
         )
+        """
+        self.class_classifier = nn.Sequential(
+            nn.Linear(input_dim, 16, bias=True),
+            nn.BatchNorm1d(16),
+            #nn.Dropout(0.5),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(16, 32),
+            nn.BatchNorm1d(32),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(32, 64),
+            nn.BatchNorm1d(64),
+            nn.LeakyReLU(inplace=True),
+            nn.Linear(64, output_dim)
+        )
+        """
 
     def forward(self, input_data):
         class_output = self.class_classifier(input_data)
@@ -184,12 +223,12 @@ class Discriminator(nn.Module):
 
         self.domain_classifier = nn.Sequential(
             nn.Linear(input_dim, 128, bias=True),
-            nn.BatchNorm1d(128),
+            #nn.BatchNorm1d(128),
             nn.LeakyReLU(inplace=True),
             nn.Linear(128, 128),
             nn.LeakyReLU(inplace=True),
             nn.Linear(128, 128),
-            nn.BatchNorm1d(128),
+            #nn.BatchNorm1d(128),
             #torch.nn.Sigmoid()
             nn.LeakyReLU(inplace=True),
             nn.Linear(128, output_dim)

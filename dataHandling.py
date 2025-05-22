@@ -31,6 +31,18 @@ def load_dataset(dataTable):
     dfn = df.to_numpy()
 
     x = dfn[:,:-1].astype(np.float32)
+    #x = dfn[:,1:-2].astype(np.float32)
+    #newColPi1 = 1./np.sqrt(1.+(0.195**2)/(dfn[:,0]**2)) - dfn[:,-2]
+    #newColPi2 = 1./np.sqrt(1.+(0.195**2)/(dfn[:,0]**2)) - dfn[:,-2]
+    #newColK1 = 1./np.sqrt(1.+(0.493**2)/(dfn[:,0]**2)) - dfn[:,-2]
+    #newColK2 = 1./np.sqrt(1.+(0.493**2)/(dfn[:,0]**2)) - dfn[:,-2]
+    #newColp = 1./np.sqrt(1.+(0.9383**2)/(dfn[:,0]**2)) - dfn[:,-2]
+    #x = np.column_stack((x, newColPi1))
+    #x = np.column_stack((x, newColPi2))
+    #x = np.column_stack((x, newColK1))
+    #x = np.column_stack((x, newColK2))
+    #x = np.column_stack((x, newColp)).astype(np.float32)
+
     y = dfn[:, -1].astype(np.float32)
 
     print('x shape = ' + str(x.shape))
@@ -41,14 +53,18 @@ def load_dataset(dataTable):
 class DataManager():
     def __init__(self,datasetType) -> None:
         self.dataSetType = datasetType
-        self.poorColumnValues = [('tofdedx',-1)]
-        #self.poorColumnValues = []
+        #self.poorColumnValues = [('tofdedx',-1)]
+        self.poorColumnValues = []
         self.pidsToSelect = [8,9,11,12,14]
+        #self.pidsToSelect = [9,12]
         #self.pidsToSelect = [8,11,14]
         #self.pidsToSelect = [8,14]
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch','mass2']
         #self.features = ['momentum','charge','theta','mdcdedx','beta']
-        self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch']
+        self.features = ['momentum','charge','theta','mdcdedx','beta']
+        #self.features = ['momentum','charge','beta']
+        #self.features = ['momentum','beta']
+        #self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch']
         #self.features = ['momentum','charge','theta','phi','tofdedx','tof','distmeta','beta','metamatch','mass2']
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tof','distmeta','beta','metamatch','mass2']
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','metamatch','mass2']
@@ -74,8 +90,8 @@ class DataManager():
         print(lowBord[0])
         print(upBord[0])
         print(step[0])
-        #bins = [np.arange(-5, 5, 0.01) for i in range(inputsLength)]
-        bins = [np.arange(lowBord[i], upBord[i], step[i]) for i in range(inputsLength)]
+        bins = [np.arange(-5, 5, 0.01) for i in range(inputsLength)]
+        #bins = [np.arange(lowBord[i], upBord[i], step[i]) for i in range(inputsLength)]
 
         # Create a 3x3 grid of subplots
         #fig, axes = plt.subplots(3, 4, figsize=(10, 8))
@@ -164,19 +180,30 @@ class DataManager():
         for batch in uproot.iterate([rootPath],library="pd"):
             print(fileC)
             if mod == "simLabel":
-                batches.append(batch.sample(frac=0.5*0.5).reset_index(drop=True))
+                batches.append(batch.sample(frac=0.2).reset_index(drop=True))
             else:
-                batches.append(batch.sample(frac=0.5).reset_index(drop=True))
+                batches.append(batch.sample(frac=0.2).reset_index(drop=True))
             del batch
             fileC = fileC+1
         #
         setTable = pandas.concat(batches,ignore_index=True).reset_index(drop=True)
         del batches
         
-
-        selection = (setTable['beta']<1.3) & (setTable['charge']>-10) & (setTable['mass2']>-1.5) & (setTable['mass2']<2.5) & (setTable['momentum']>0.05) & (setTable['momentum']<5) & (setTable['mdcdedx']>0.1) & (setTable['mdcdedx']<15)
+        selection = (
+            (setTable['beta'] < 1.3) &
+            ((setTable['charge'] == -1) | (setTable['charge'] == 1)) &
+            (setTable['mass2'] > -1.5) &
+            (setTable['mass2'] < 2.5) &
+            (setTable['momentum'] > 0.05) &
+            (setTable['momentum'] < 5) &
+            (setTable['mdcdedx'] > 0.1) &
+            ((setTable['mdcdedx'] < 15) | ((setTable['charge'] == 1) & (setTable['mdcdedx'] < 50)))
+        )
+        #selection = (setTable['beta']<1.3) & (setTable['charge']>-10) & (setTable['mass2']>-1.5) & (setTable['mass2']<2.5) & (setTable['momentum']>0.05) & (setTable['momentum']<5) & (setTable['mdcdedx']>0.1) & (setTable['mdcdedx']<15 | (setTable['charge']>0 & setTable['mdcdedx']<50 ))
         setTable = setTable.loc[selection].copy().reset_index()
         del selection
+
+        print(setTable)
 
         # selecting pids from sim mix and
         if mod == "simLabel":
@@ -185,10 +212,26 @@ class DataManager():
             for i in range(len(self.pidsToSelect)):
                 ttables.append(setTable.loc[setTable['pid']==self.pidsToSelect[i]].copy())
                 ttables[i]['pid'] = i
+            #ttables[1] = ttables[1].sample(frac=0.3).copy()
+            #ttables[2] = ttables[2].sample(frac=0.7).copy()
+
             #ttables[1] = ttables[1].sample(frac=0.8).copy()
-            ttables[2] = ttables[2].sample(frac=0.2).copy() #0.3
-            ttables[3] = ttables[3].sample(frac=0.2).copy()
-            ttables[4] = ttables[4].sample(frac=0.55).copy()
+
+            expWeights = [0.7024254304135277,0.9141199407231614,3.7419080282468262,9.768587299547331,0.47330540899197004]
+            expAmounts = [1065649,753785,70525,46182,1487686]
+            simAmounts = [ttables[i].shape[0] for i in range(5)]
+            scales = [expAmounts[i]/simAmounts[i] for i in range(5)]
+
+            print("SCALES sim to exp:")
+            print(scales)
+
+            for i in range(5):
+                ttables[i] = ttables[i].sample(frac=scales[i]).copy()
+
+            #ttables[2] = ttables[2].sample(frac=0.3).copy() #0.3
+            #ttables[3] = ttables[3].sample(frac=0.3).copy()
+            #ttables[4] = ttables[4].sample(frac=0.7).copy()
+                
             try:
                 fullSetTable = pandas.concat(ttables, verify_integrity=True).sort_index()
             except ValueError as e:
@@ -201,6 +244,7 @@ class DataManager():
 
         #setTable['mass2'] = setTable['mass2'].abs()
         
+        #dropColumns = ['event_id', 'momentum', 'beta']
         #dropColumns = ['event_id', 'theta', 'phi']
         dropColumns = ['event_id']
         for drop in dropColumns:
@@ -220,6 +264,15 @@ class DataManager():
                 dropColumns.append(columns[i])
         for drop in dropColumns:
             table.drop(drop,axis=1,inplace=True)
+
+        
+        newColPi = 1./np.sqrt(1.+(0.195**2)/(table['momentum']**2)) - table['beta']
+        newColK = 1./np.sqrt(1.+(0.493**2)/(table['momentum']**2)) - table['beta']
+        newColp = 1./np.sqrt(1.+(0.9383**2)/(table['momentum']**2)) - table['beta']
+        table.insert(0, 'newColPi', newColPi)
+        table.insert(1, 'newColK', newColK)
+        table.insert(2, 'newColp', newColp)
+
         return table
 
     def manageDataset(self, mod):
@@ -232,6 +285,16 @@ class DataManager():
         #self.prepareTable(dftCorr)
         dftCorr = self.dropCols(dftCorr)
         setTable = self.dropCols(setTable)
+
+        pq.write_table(pa.Table.from_pandas(dftCorr), os.path.join("nndata",'simuTest' + self.dataSetType + '.parquet'))
+        pq.write_table(pa.Table.from_pandas(setTable), os.path.join("nndata",'expuTest' + self.dataSetType + '.parquet'))
+
+        #dropColumns = ['momentum','beta']
+        #dropColumns = ['newColPi','newColK','newColp']
+        #for drop in dropColumns:
+        #    dftCorr.drop(drop,axis=1,inplace=True)
+        #    setTable.drop(drop,axis=1,inplace=True)
+
         pq.write_table(pa.Table.from_pandas(dftCorr), os.path.join("nndata",'simu' + self.dataSetType + '.parquet'))
         pq.write_table(pa.Table.from_pandas(setTable), os.path.join("nndata",'expu' + self.dataSetType + '.parquet'))
         print(dftCorr)
