@@ -329,9 +329,9 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
             tepoch.set_description(f"Epoch {epoch}")
 
             p = float(i_step + start_steps) / total_steps
-            #alpha = 2. / (1. + np.exp(-10 * p)) - 1
+            alpha = 2. / (1. + np.exp(-10 * p)) - 1
             #alpha = 0.1 / (1. + np.exp(-10 * p)) - 1
-            alpha = 0.5
+            #alpha = 0.5
 
             (s_x, s_y) = next(sim_iter)
             (e_x, _)   = next(exp_iter)
@@ -374,7 +374,7 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
             #if (epoch // 2 * 2 != epoch):
             #encoder.eval()
             #classifier.eval()
-            total_loss = class_loss + 2 * domain_loss
+            total_loss = class_loss + domain_loss
             #total_loss = domain_loss
 
             optimizer.zero_grad()
@@ -481,9 +481,9 @@ def train_NN(simulation_path, experiment_path):
         #weights[indicesWeights[i]] = math.sqrt(1./nClasses * 1./valuesWeights[i])
         #weights[indicesWeights[i]] = 1./nClasses * 1./valuesWeights[i]
         weights[indicesWeights[i]] = 1./nClasses * (1.-beta)/(1-beta**valuesWeights[i])
-    weights[2] = weights[2]/4
-    weights[3] = weights[3]/6
-    weights = [1,1,1,0.5,1]
+    weights[2] = weights[2]/2
+    weights[3] = weights[3]/3
+    #weights = [1,1,1,0.5,1]
     print(weights)
     
     print(dftCorr.isnull().sum())
@@ -496,9 +496,11 @@ def train_NN(simulation_path, experiment_path):
     #nn_model = Model(input_dim=input_dim, output_dim=nClasses)
     nn_model = DANN(input_dim=input_dim, output_dim=nClasses).type(torch.FloatTensor).to(device)
 
-    encoder = Encoder(input_dim=input_dim, output_dim=64).type(torch.FloatTensor).to(device)
-    classifier = Classifier(input_dim=64, output_dim=nClasses).type(torch.FloatTensor).to(device)
-    discriminator = Discriminator(input_dim=64, output_dim=2).type(torch.FloatTensor).to(device)
+    latentDim = 64
+
+    encoder = Encoder(input_dim=input_dim, output_dim=latentDim).type(torch.FloatTensor).to(device)
+    classifier = Classifier(input_dim=latentDim, output_dim=nClasses).type(torch.FloatTensor).to(device)
+    discriminator = Discriminator(input_dim=latentDim, output_dim=2).type(torch.FloatTensor).to(device)
 
     #exported_program = torch.export.export(DANN(input_dim=input_dim, output_dim=nClasses), (torch.randn(2,input_dim),))
     #torch.export.save(exported_program, 'exported_program.pt2')
@@ -510,8 +512,8 @@ def train_NN(simulation_path, experiment_path):
 
     #weights = np.array([0.6738684703630756, 10 ,2.2488611656428765, 60 ,0.9810510497144537]).astype(np.float32)
     #weights = np.array([5.13, 1.54 ,0.41, 31.3 ,1]).astype(np.float32)
-    loss = nn.CrossEntropyLoss(torch.tensor(weights)).to(device)
-    #loss = nn.CrossEntropyLoss().to(device)
+    #loss = nn.CrossEntropyLoss(torch.tensor(weights)).to(device)
+    loss = nn.CrossEntropyLoss().to(device)
     #loss_domain = nn.CrossEntropyLoss().to(device)
     #loss = nn.MSELoss()
     #loss_domain = nn.NLLLoss()
@@ -544,7 +546,7 @@ def train_NN(simulation_path, experiment_path):
                   input_names = ["input"],              # the model's input names
                   output_names = ["features"])            # the model's output names
     torch.onnx.export(classifier.cpu(),                                # model being run
-                  torch.randn(1, 64),    # model input (or a tuple for multiple inputs)
+                  torch.randn(1, latentDim),    # model input (or a tuple for multiple inputs)
                   os.path.join("nndata",'classifier' + dataSetType + '.onnx'),           # where to save the model (can be a file or file-like object)
                   input_names = ["features"],              # the model's input names
                   output_names = ["class"])            # the model's output names

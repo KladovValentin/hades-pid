@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import torchvision
 import matplotlib.pyplot as plt
 from matplotlib import colors
+from sklearn.metrics import roc_curve, auc, RocCurveDisplay
 import pandas
 import numpy as np
 import pyarrow as pa
@@ -38,14 +39,23 @@ def loadModel(input_dim, nClasses):
     return nn_model.to(device)
 
 def loadModelSeparated(input_dim, nClasses):
-    encoder = Encoder(input_dim=input_dim, output_dim=64).type(torch.FloatTensor).to(device)
-    encoder.load_state_dict(torch.load(os.path.join('nndata','encoder' + dataSetType + '.pt')))
-    classifier = Classifier(input_dim=64, output_dim=nClasses).type(torch.FloatTensor).to(device)
-    classifier.load_state_dict(torch.load(os.path.join('nndata','classifier' + dataSetType + '.pt')))
-    discriminator = Discriminator(input_dim=64, output_dim=2).type(torch.FloatTensor).to(device)
-    discriminator.load_state_dict(torch.load(os.path.join('nndata','discriminator' + dataSetType + '.pt')))
-    #nn_model.eval()
-    return encoder,classifier,discriminator
+    latentDim = 64
+    encoder = Encoder(input_dim=input_dim, output_dim=latentDim).to(device).float()
+    enc_sd = torch.load(os.path.join('nndata', 'encoder' + dataSetType + '.pt'),
+                        map_location=device, weights_only=True)
+    encoder.load_state_dict(enc_sd)
+
+    classifier = Classifier(input_dim=latentDim, output_dim=nClasses).to(device).float()
+    cls_sd = torch.load(os.path.join('nndata', 'classifier' + dataSetType + '.pt'),
+                        map_location=device, weights_only=True)
+    classifier.load_state_dict(cls_sd)
+
+    discriminator = Discriminator(input_dim=latentDim, output_dim=2).to(device).float()
+    disc_sd = torch.load(os.path.join('nndata', 'discriminator' + dataSetType + '.pt'),
+                         map_location=device, weights_only=True)
+    discriminator.load_state_dict(disc_sd)
+
+    return encoder, classifier, discriminator
 
 def constructPredictionFrame(index,nparray):
     # return new DataFrame with 4 columns corresponding to probabilities of resulting classes and 5th column to chi2 
@@ -333,9 +343,9 @@ def draw_confusion_matrix(maskPrediction,maskTarget):
 
 
 def draw_2d_param_spread(tables, column1, column2):
-    class_hist0 = [tables[1][column1].to_numpy(),tables[1][column2].to_numpy()]
+    class_hist0 = [tables[0][column1].to_numpy(),tables[0][column2].to_numpy()]
     class_hist1 = [tables[4][column1].to_numpy(),tables[4][column2].to_numpy()]
-    class_hist2 = [tables[3][column1].to_numpy(),tables[3][column2].to_numpy()]
+    class_hist2 = [tables[2][column1].to_numpy(),tables[2][column2].to_numpy()]
 
     if (column2 == "beta"):
         x = np.linspace(0,1,100)
@@ -361,7 +371,7 @@ def draw_2d_param_spread(tables, column1, column2):
 
     h1 = plt.hist2d(class_hist0[0],class_hist0[1], bins = 300, cmin=5, cmap=plt.cm.jet)
     h2 = plt.hist2d(class_hist2[0],class_hist2[1], bins = 100, cmin=1, cmap=plt.cm.jet)
-    #h0 = plt.hist2d(class_hist1[0],class_hist1[1], bins = 300, cmin=5, cmap=plt.cm.jet)
+    h0 = plt.hist2d(class_hist1[0],class_hist1[1], bins = 300, cmin=5, cmap=plt.cm.jet)
     plt.colorbar(h2[3])
     print(len(class_hist2[0]))
     print(class_hist2)
@@ -390,6 +400,49 @@ def draw_2d_param_spread(tables, column1, column2):
     hist1.Draw("colzsame")
     canvas.Update()
     input()
+
+
+def plot_roc_curves(y_true, y_score, class_names=None, average=False, groups=None):
+    n_classes = y_score.shape[1]
+
+    # Binary indicators for each class
+    y_true_bin = np.eye(n_classes)[y_true]
+
+    if class_names is None:
+        class_names = [f'Class {i}' for i in range(n_classes)]
+
+    plt.figure(figsize=(10, 8))
+
+    if average:
+        # Compute micro-average ROC curve and ROC area
+        fpr, tpr, _ = roc_curve(y_true_bin.ravel(), y_score.ravel())
+        roc_auc = auc(fpr, tpr)
+        plt.plot(fpr, tpr, lw=2,
+                 label=f'micro-average ROC curve (area = {roc_auc:.3f})')
+
+    if groups:
+        for idx, group in enumerate(groups):
+            for i in group:
+                fpr, tpr, _ = roc_curve(y_true_bin[:, i], y_score[:, i])
+                roc_auc = auc(fpr, tpr)
+                plt.plot(fpr, tpr, lw=2,
+                         label=f'ROC curve of {class_names[i]} (group {idx+1}) (area = {roc_auc:.3f})')
+    else:
+        for i in range(n_classes):
+            fpr, tpr, _ = roc_curve(y_true_bin[:, i], y_score[:, i])
+            roc_auc = auc(fpr, tpr)
+            plt.plot(fpr, tpr, lw=2,
+                     label=f'ROC curve of {class_names[i]} (area = {roc_auc:.3f})')
+
+    plt.plot([0, 1], [0, 1], 'k--', lw=2)
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curves')
+    plt.legend(loc="lower right")
+    plt.grid(alpha=0.3)
+    plt.show()
 
 
 
@@ -492,7 +545,7 @@ def analyseOutput(predFileName, experiment_path,mod):
     #(dftCorrExp['pid']==3) 
     mask = []
     mask2 = []
-    for i in range(lrange):
+    for i in range(lrange):  #looping through particle classes
         cN = list(pT.columns)
         #mask.append((dftCorrExp['beta']<1.5) & (dftCorrExp['beta']>0.1))
         #mask2.append((dftCorrExp['beta']<1.5) & (dftCorrExp['beta']>0.1))
@@ -500,9 +553,10 @@ def analyseOutput(predFileName, experiment_path,mod):
         mask2.append((dftCorrExp['charge']<1.5) & (dftCorrExp['charge']>-1.5))
         #mask.append((dftCorrExp['mass2']<111.2))
         #mask2.append((dftCorrExp['mass2']<111.2))
-        for j in range(lrange-1):
-            if (mod == "sim"):
-                mask2[i] = mask2[i] & (dftCorrExp['pid'] == i)
+        if (mod == "sim"):
+            mask2[i] = mask2[i] & (dftCorrExp['pid'] == i)
+
+        for j in range(lrange-1):     #looping through other classes to check probability differences
             #mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.01 & pT[cN[i]]-pT[cN[(i+j+1)%lrange]]<0.7)
             mask[i] = mask[i] & (pT[cN[i]]-pT[cN[(i+j+1)%lrange]]>0.1)
         #pT.index = pandas.Int64Index(pT.index)
@@ -524,15 +578,16 @@ def analyseOutput(predFileName, experiment_path,mod):
     if (mod == "sim"):
         #draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
         draw_confusion_matrix(np.array(mask),np.array(mask2))
+        plot_roc_curves(dftCorrExp['pid'].to_numpy(),pT.to_numpy()[:,:5], class_names=['$\pi^{+}$','$\pi^{-}$','$K^{+}$','$K^{-}$','p'])    #for each true class from sim -> how they are identified.
         #draw_2d_param_spread(tablesClasses,'momentum','mdcdedx')
         #draw_2d_param_spread(tablesClasses,'momentum','beta')
         #draw_2d_param_spread(tablesClasses,'momentum','newColK')
         #draw_parameter_spread(tablesClasses,'mass2')
         print("sim")
     elif (mod == "exp"):
-        #draw_2d_param_spread(tablesClasses,'momentum','mdcdedx')
-        draw_2d_param_spread(tablesClasses,'momentum','beta')
-        draw_2d_param_spread(tablesClasses,'momentum','newColK')
+        draw_2d_param_spread(tablesClasses,'momentum','mdcdedx')
+        #draw_2d_param_spread(tablesClasses,'momentum','beta')
+        #draw_2d_param_spread(tablesClasses,'momentum','newColK')
         #draw_parameter_spread(tablesClasses,'mass2')
         #draw_parameter_spread(tablesClasses,'newColK')
         #draw_parameters_spread(tablesClasses,'newColPi1','newColK','newColp')

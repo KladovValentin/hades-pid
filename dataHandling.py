@@ -56,12 +56,14 @@ class DataManager():
         #self.poorColumnValues = [('tofdedx',-1)]
         self.poorColumnValues = []
         self.pidsToSelect = [8,9,11,12,14]
+        self.newFeatures = True
         #self.pidsToSelect = [9,12]
         #self.pidsToSelect = [8,11,14]
         #self.pidsToSelect = [8,14]
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch','mass2']
         #self.features = ['momentum','charge','theta','mdcdedx','beta']
         self.features = ['momentum','charge','theta','mdcdedx','beta']
+        #self.features = ['momentum','charge','theta','mdcdedx']
         #self.features = ['momentum','charge','beta']
         #self.features = ['momentum','beta']
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','beta','metamatch']
@@ -171,16 +173,18 @@ class DataManager():
         #simPath  = rootPath + "sim3/*sim*.root"
 
         if (mod == "simLabel"):
-            rootPath = rootPath + "sim41Gen3/*sim*.root"
+            #rootPath = rootPath + "sim41Gen3/*sim*.root"
+            rootPath = rootPath + "sim41Gen3_1/*sim*.root"
         else:
             #rootPath = rootPath + "data41/pid_data_ascii_random.root:pid"
-            rootPath = rootPath + "data41/*exp*.root:pid"
+            #rootPath = rootPath + "data41/*exp*.root:pid"
+            rootPath = rootPath + "dataNodEdxCorr/*exp*.root:pid"
         fileC = 0
         batches = []
         for batch in uproot.iterate([rootPath],library="pd"):
             print(fileC)
             if mod == "simLabel":
-                batches.append(batch.sample(frac=0.2).reset_index(drop=True))
+                batches.append(batch.sample(frac=0.1).reset_index(drop=True))
             else:
                 batches.append(batch.sample(frac=0.2).reset_index(drop=True))
             del batch
@@ -200,7 +204,7 @@ class DataManager():
             ((setTable['mdcdedx'] < 15) | ((setTable['charge'] == 1) & (setTable['mdcdedx'] < 50)))
         )
         #selection = (setTable['beta']<1.3) & (setTable['charge']>-10) & (setTable['mass2']>-1.5) & (setTable['mass2']<2.5) & (setTable['momentum']>0.05) & (setTable['momentum']<5) & (setTable['mdcdedx']>0.1) & (setTable['mdcdedx']<15 | (setTable['charge']>0 & setTable['mdcdedx']<50 ))
-        setTable = setTable.loc[selection].copy().reset_index()
+        #setTable = setTable.loc[selection].copy().reset_index()
         del selection
 
         print(setTable)
@@ -266,12 +270,13 @@ class DataManager():
             table.drop(drop,axis=1,inplace=True)
 
         
-        newColPi = 1./np.sqrt(1.+(0.195**2)/(table['momentum']**2)) - table['beta']
-        newColK = 1./np.sqrt(1.+(0.493**2)/(table['momentum']**2)) - table['beta']
-        newColp = 1./np.sqrt(1.+(0.9383**2)/(table['momentum']**2)) - table['beta']
-        table.insert(0, 'newColPi', newColPi)
-        table.insert(1, 'newColK', newColK)
-        table.insert(2, 'newColp', newColp)
+        if (self.newFeatures):
+            newColPi = 1./np.sqrt(1.+(0.195**2)/(table['momentum']**2)) - table['beta']
+            newColK = 1./np.sqrt(1.+(0.493**2)/(table['momentum']**2)) - table['beta']
+            newColp = 1./np.sqrt(1.+(0.9383**2)/(table['momentum']**2)) - table['beta']
+            table.insert(0, 'newColPi', newColPi)
+            table.insert(1, 'newColK', newColK)
+            table.insert(2, 'newColp', newColp)
 
         return table
 

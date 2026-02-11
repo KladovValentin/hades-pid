@@ -1,11 +1,39 @@
+# Build and temporary files
+*.o
+*.log
+*.npy
+*.tmp
+*.bak
+__pycache__/
+models/__pycache__/
+*.py[cod]
+.DS_Store
+
+
+# IDE/project files
+.vscode/
+.idea/
+*.swp
+
+
+# Environment and models
+env/
+*.onnx
+*.pth
+*.pt*
+
+
+# Data files
+*.root
+
 sim*/
 data*/
 nndata/
 *parquet
 test*
 temp*
-*.pt*
 *.d
 *.so
 *.pcm
 *.dat
+DirectoryChat.py
