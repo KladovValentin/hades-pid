@@ -42,43 +42,25 @@ Main files:
 - `predict.py`: applies trained weights to parquet tables and provides plotting
   and validation helpers.
 
-The scripts use `dataSetType` to choose file names:
-
-```python
-dataSetType = 'NewKIsUsed'
-```
-
-With this setting, the training script expects input tables such as:
-
-```text
-nndata/simuNewKIsUsed.parquet
-nndata/expuNewKIsUsed.parquet
-```
 
 Train and export the model with:
 
 ```bash
-python networkTrainer.py
+python3 networkTrainer.py
 ```
 
 The training step writes files in `nndata/`, for example:
 
 ```text
-nndata/encoderNewKIsUsed.pt
-nndata/classifierNewKIsUsed.pt
-nndata/discriminatorNewKIsUsed.pt
-nndata/encoderNewKIsUsed.onnx
-nndata/classifierNewKIsUsed.onnx
-nndata/meanValuesNewKIsUsed.txt
-nndata/stdValuesNewKIsUsed.txt
+nndata/encoder.pt
+nndata/classifier.pt
+nndata/discriminator.pt
+nndata/encoder.onnx
+nndata/classifier.onnx
+nndata/meanValues.txt
+nndata/stdValues.txt
 ```
 
-To run predictions from Python, use the helpers in `predict.py` and set the
-bottom of the file to the input/output table you want, for example:
-
-```python
-predict('expuNewKIsUsed.parquet', 'predictedExpNewKIsUsed.parquet')
-```
 
 The prediction table contains the five class probabilities. For the split model,
 it also contains the latent features produced by the encoder.
@@ -131,12 +113,12 @@ Export `MYHADDIR` when launching the job:
 export MYHADDIR=/lustre/hades/user/vkladov/packages/KinFit
 ```
 
-If you use your own third-party directory, copy the ONNX Runtime `include/` and
+If you use your own third-party-packages directory, copy the ONNX Runtime `include/` and
 library files there and export that directory as `MYHADDIR`.
 
 ### Run PID in an analysis
 
-Create one `HNetworkPID` object and reuse it for all candidates. The main
+Create one `HNetworkPID` object and reuse it for all calls. The main
 methods are:
 
 - `getPredictionProbability(input)`: returns the five class probabilities.
