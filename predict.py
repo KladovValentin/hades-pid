@@ -347,6 +347,29 @@ def draw_2d_param_spread(tables, column1, column2):
     class_hist1 = [tables[4][column1].to_numpy(),tables[4][column2].to_numpy()]
     class_hist2 = [tables[2][column1].to_numpy(),tables[2][column2].to_numpy()]
 
+    # Print class shares vs binned column1 (momentum)
+    all_col1 = np.concatenate([t[column1].to_numpy() for t in tables if column1 in t.columns])
+    if all_col1.size > 0:
+        bin_edges = np.linspace(0, 4, 41)
+        total_counts, _ = np.histogram(all_col1, bins=bin_edges)
+        class0_counts, _ = np.histogram(class_hist0[0], bins=bin_edges)
+        class2_counts, _ = np.histogram(class_hist2[0], bins=bin_edges)
+        class4_counts, _ = np.histogram(class_hist1[0], bins=bin_edges)
+
+        print(f"Shares by {column1} bins (class 0 and 2):")
+        print("bin_low\tbin_high\tshare_class0\tshare_class2\tshare_class4\tcount_total")
+        for i in range(len(bin_edges) - 1):
+            total = total_counts[i]
+            if total == 0:
+                share0 = 0.0
+                share2 = 0.0
+                share4 = 0.0
+            else:
+                share0 = class0_counts[i] / total
+                share2 = class2_counts[i] / total
+                share4 = class4_counts[i] / total
+            print(f"{bin_edges[i]:.6g}\t{bin_edges[i+1]:.6g}\t{share0:.6f}\t{share2:.6f}\t{share4:.6f}\t{total}")
+
     if (column2 == "beta"):
         x = np.linspace(0,1,100)
         y = 1./np.sqrt(1.+(0.13957**2)/(x**2))
@@ -385,20 +408,31 @@ def draw_2d_param_spread(tables, column1, column2):
         hist0 = ROOT.TH2F("hist0", "p;P [GeV/c];#beta", 300, 0, 5, 300, 0.2, 1.2)
         hist1 = ROOT.TH2F("hist1", "K^{+};P [GeV/c];#beta", 100, 0, 5, 100, 0.2, 1.2)
         hist2 = ROOT.TH2F("hist2", "#pi^{+};P [GeV/c];#beta", 300, 0, 5, 300, 0.2, 1.2)
+        for i in range(len(class_hist1[0])):
+            hist0.Fill(class_hist1[0][i],class_hist1[1][i])
+        for i in range(len(class_hist2[0])):
+            hist1.Fill(class_hist2[0][i],class_hist2[1][i])
+        for i in range(len(class_hist0[0])):
+            hist2.Fill(class_hist0[0][i],class_hist0[1][i])
+        hist0.Draw("colz")
+        hist2.Draw("colzsame")
+        hist1.Draw("colzsame")
+        canvas.Update()
     elif ("newCol" in column2):
         hist0 = ROOT.TH2F("hist0", "p;P [GeV/c];#beta_{expected}-#beta_{measured}", 300, 0, 5, 300, -0.5, 0.5)
         hist1 = ROOT.TH2F("hist1", "K^{+};P [GeV/c];#beta_{expected}-#beta_{measured}", 100, 0, 5, 100, -0.5, 0.5)
         hist2 = ROOT.TH2F("hist2", "#pi^{+};P [GeV/c];#beta_{expected}-#beta_{measured}", 300, 0, 5, 300, -0.5, 0.5)
-    for i in range(len(class_hist1[0])):
-        hist0.Fill(class_hist1[0][i],class_hist1[1][i])
-    for i in range(len(class_hist2[0])):
-        hist1.Fill(class_hist2[0][i],class_hist2[1][i])
-    for i in range(len(class_hist0[0])):
-        hist2.Fill(class_hist0[0][i],class_hist0[1][i])
-    hist0.Draw("colz")
-    hist2.Draw("colzsame")
-    hist1.Draw("colzsame")
-    canvas.Update()
+        for i in range(len(class_hist1[0])):
+            hist0.Fill(class_hist1[0][i],class_hist1[1][i])
+        for i in range(len(class_hist2[0])):
+            hist1.Fill(class_hist2[0][i],class_hist2[1][i])
+        for i in range(len(class_hist0[0])):
+            hist2.Fill(class_hist0[0][i],class_hist0[1][i])
+        hist0.Draw("colz")
+        hist2.Draw("colzsame")
+        hist1.Draw("colzsame")
+        canvas.Update()
+
     input()
 
 
@@ -580,13 +614,13 @@ def analyseOutput(predFileName, experiment_path,mod):
         draw_confusion_matrix(np.array(mask),np.array(mask2))
         plot_roc_curves(dftCorrExp['pid'].to_numpy(),pT.to_numpy()[:,:5], class_names=['$\pi^{+}$','$\pi^{-}$','$K^{+}$','$K^{-}$','p'])    #for each true class from sim -> how they are identified.
         #draw_2d_param_spread(tablesClasses,'momentum','mdcdedx')
-        #draw_2d_param_spread(tablesClasses,'momentum','beta')
+        draw_2d_param_spread(tablesClasses,'momentum','beta')
         #draw_2d_param_spread(tablesClasses,'momentum','newColK')
         #draw_parameter_spread(tablesClasses,'mass2')
         print("sim")
     elif (mod == "exp"):
         draw_2d_param_spread(tablesClasses,'momentum','mdcdedx')
-        #draw_2d_param_spread(tablesClasses,'momentum','beta')
+        draw_2d_param_spread(tablesClasses,'momentum','beta')
         #draw_2d_param_spread(tablesClasses,'momentum','newColK')
         #draw_parameter_spread(tablesClasses,'mass2')
         #draw_parameter_spread(tablesClasses,'newColK')
@@ -637,6 +671,58 @@ def predict_nn(fName, oName):
     #write_output(predictionList,mod,enlist)
 
 
+
+
+def plotSimpleComp():
+    # Bin centers
+    bin_centers = np.arange(0.05, 2.25, 0.1)
+
+    # nn exp
+    nn_exp = [
+        0.000062, 0.001347, 0.058443, 0.246736, 0.369547, 0.431809,
+        0.478176, 0.506656, 0.534461, 0.562519, 0.591011, 0.617339,
+        0.645514, 0.673183, 0.697785, 0.724006, 0.757243, 0.780135,
+        0.808918, 0.836201, 0.858410, 0.885601
+    ]
+
+    # nn sim
+    nn_sim = [
+        0.000000, 0.004278, 0.022886, 0.059118, 0.095918, 0.136483,
+        0.201851, 0.291627, 0.399146, 0.506946, 0.606102, 0.689188,
+        0.758846, 0.811606, 0.853431, 0.886965, 0.909095, 0.928865,
+        0.942953, 0.955549, 0.961963, 0.971527
+    ]
+
+    # dann exp
+    dann_exp = [
+        0.000000, 0.001323, 0.055613, 0.244267, 0.367263, 0.429713,
+        0.476758, 0.505761, 0.533645, 0.561214, 0.589737, 0.616373,
+        0.644372, 0.671775, 0.696466, 0.722917, 0.755538, 0.779182,
+        0.810122, 0.837669, 0.858944, 0.882542
+    ]
+
+    # dann sim
+    dann_sim = [
+        0.000000, 0.004264, 0.022870, 0.059105, 0.095906, 0.136459,
+        0.201842, 0.291598, 0.399180, 0.506984, 0.606006, 0.689314,
+        0.758719, 0.811171, 0.852527, 0.885640, 0.907682, 0.927348,
+        0.942380, 0.955740, 0.961682, 0.970215
+    ]
+
+    plt.figure()
+    plt.plot(bin_centers, nn_exp, label="nn exp")
+    plt.plot(bin_centers, nn_sim, label="nn sim")
+    plt.plot(bin_centers, dann_exp, label="dann exp")
+    plt.plot(bin_centers, dann_sim, label="dann sim")
+
+    plt.xlabel("bin center")
+    plt.ylabel("share_class2")
+    plt.legend()
+    plt.show()
+
+
+
+
 def predict(fName, oName):
     predict_nn(fName, oName)
 
@@ -648,9 +734,12 @@ def predict(fName, oName):
 #print("start python predict")
 #predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
 #predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
-analyseOutput('predictedExp' + dataSetType + '.parquet','expuTest' + dataSetType + '.parquet',"exp")
-analyseOutput('predictedSim' + dataSetType + '.parquet','simuTest' + dataSetType + '.parquet',"sim")
+#analyseOutput('predictedExp' + dataSetType + '.parquet','expuTest' + dataSetType + '.parquet',"exp")
+#analyseOutput('predictedSim' + dataSetType + '.parquet','simuTest' + dataSetType + '.parquet',"sim")
 
 #analyseExpAndSim('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet', 'predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 
 #plt.show()
+
+
+plotSimpleComp()

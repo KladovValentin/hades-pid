@@ -375,6 +375,7 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
             #encoder.eval()
             #classifier.eval()
             total_loss = class_loss + domain_loss
+            #total_loss = class_loss
             #total_loss = domain_loss
 
             optimizer.zero_grad()
@@ -558,7 +559,7 @@ def train_NN(simulation_path, experiment_path):
 
 print("start_train_python")
 
-dataManager.manageDataset("train_dann")
+#dataManager.manageDataset("train_dann")
 
 #dataManager.compareInitialDistributions()
 
