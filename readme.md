@@ -1,10 +1,14 @@
 # ML-based PID for HADES particle candidates
 
-This repository contains Python code for training and applying a neural-network
-PID model, plus a small C++ wrapper that runs the exported ONNX model inside a
-HADES analysis.
+This package trains and applies a neural-network particle-identification model
+for HADES `HParticleCand`-like track candidates. It can be used in two ways:
 
-The model classifies one particle candidate into five classes:
+1. as a standalone Python workflow for preparing data, training the network,
+   exporting ONNX files, and producing prediction tables;
+2. from a HADES analysis through the `HNetworkPID.h` / `HNetworkPID.C` wrapper,
+   which loads the exported ONNX model and evaluates candidates directly in C++.
+
+The network returns probabilities for five particle classes:
 
 | Network index | Particle |
 | --- | --- |
@@ -14,54 +18,50 @@ The model classifies one particle candidate into five classes:
 | 3 | K- |
 | 4 | p |
 
-The HADES wrapper currently builds the network input from momentum, charge,
-theta, MDC dE/dx, and beta. The Python dataset preparation can also add derived
-beta-difference features, depending on the settings in `dataHandling.py`. In
-both cases, the input is normalized with the mean and standard-deviation values
-used during training.
+The basic candidate variables are momentum, charge, theta, MDC dE/dx, and beta.
+The Python preparation code can also add derived beta-difference features. The
+same normalization constants written during training must be used when the model
+is applied.
 
-## 1. Python code only
+## 1. Python Code
 
-The Python part is useful independently from HADES if you want to prepare
-training tables, train the model, export it to ONNX, or run predictions on
-parquet tables.
+Use the Python code when you want to build or test the model without running a
+HADES analysis job. The workflow is based on ROOT input read with `uproot`,
+intermediate parquet tables, PyTorch training, and ONNX export.
 
 Main files:
 
-- `dataHandling.py`: reads ROOT data with `uproot`, selects the PID classes,
-  keeps the input variables, writes parquet datasets, and stores the
-  normalization constants in `nndata/`.
-- `models/model.py`: defines the neural-network architectures. The currently
-  used setup is a split domain-adversarial model with an `Encoder`,
+- `dataHandling.py`: builds training and application tables, selects the five
+  PID classes, keeps the configured input variables, and writes normalization
+  constants.
+- `models/model.py`: contains the neural-network definitions. The current
+  training setup uses a split domain-adversarial network: `Encoder`,
   `Classifier`, and `Discriminator`.
-- `networkTrainer.py`: trains the model from simulation and experimental
-  parquet tables, saves PyTorch weights, and exports ONNX files.
-- `predict.py`: loads trained weights, applies the model to a parquet table,
-  writes prediction tables, and contains plotting/validation helpers.
+- `networkTrainer.py`: trains the network from simulation and experimental
+  parquet tables, saves PyTorch weights, and exports ONNX models.
+- `predict.py`: applies trained weights to parquet tables and provides plotting
+  and validation helpers.
 
-Typical workflow:
-
-1. Prepare or provide input parquet files in `nndata/`.
-2. Make sure the dataset name in the scripts matches the files you want to use:
+The scripts use `dataSetType` to choose file names:
 
 ```python
 dataSetType = 'NewKIsUsed'
 ```
 
-3. Train and export the model:
-
-```bash
-python networkTrainer.py
-```
-
-This expects files such as:
+With this setting, the training script expects input tables such as:
 
 ```text
 nndata/simuNewKIsUsed.parquet
 nndata/expuNewKIsUsed.parquet
 ```
 
-and produces files such as:
+Train and export the model with:
+
+```bash
+python networkTrainer.py
+```
+
+The training step writes files in `nndata/`, for example:
 
 ```text
 nndata/encoderNewKIsUsed.pt
@@ -69,29 +69,34 @@ nndata/classifierNewKIsUsed.pt
 nndata/discriminatorNewKIsUsed.pt
 nndata/encoderNewKIsUsed.onnx
 nndata/classifierNewKIsUsed.onnx
+nndata/meanValuesNewKIsUsed.txt
+nndata/stdValuesNewKIsUsed.txt
 ```
 
-4. Apply a trained model from Python with the helpers in `predict.py`. The file
-   currently contains executable plotting calls at the bottom, so use it as a
-   script or edit those bottom calls for the prediction you want, for example:
+To run predictions from Python, use the helpers in `predict.py` and set the
+bottom of the file to the input/output table you want, for example:
 
 ```python
 predict('expuNewKIsUsed.parquet', 'predictedExpNewKIsUsed.parquet')
 ```
 
-The prediction output contains the five class probabilities and, for the split
-model, the latent features written by the encoder.
+The prediction table contains the five class probabilities. For the split model,
+it also contains the latent features produced by the encoder.
 
-## 2. Use inside HADES
+## 2. Use at HADES
 
-The HADES side is implemented by `HNetworkPID.h` and `HNetworkPID.C`. It takes
-an `HParticleCand`, builds the normalized input vector expected by the exported
-model, runs the ONNX model, and returns PID probabilities or PID decisions.
+For HADES analyses, use the companion C++ wrapper `HNetworkPID.h` /
+`HNetworkPID.C`. The wrapper converts an `HParticleCand` into the network input,
+normalizes it, runs the ONNX model with ONNX Runtime, and returns either the full
+probability vector or PID indices selected from that vector.
+
+The wrapper is not part of the Python package itself, but it is the intended C++
+interface for using the exported model in an analysis.
 
 ### Include the wrapper
 
-If you use both the header and source files, include the header in your `.h`
-file:
+If your analysis uses both the header and source files, include the header in
+your `.h` file:
 
 ```cpp
 #include "/lustre/hades/user/vkladov/sub/expKKpiBatchFarm/HNetworkPID.h"
@@ -114,30 +119,31 @@ HNetworkPID* networkPID = new HNetworkPID();
 
 ### Link ONNX Runtime
 
-In the Makefile, link the ONNX Runtime library:
+Add the ONNX Runtime library to the Makefile:
 
 ```make
 LIBS+=/lustre/hades/user/vkladov/packages/KinFit/lib/libonnxruntime.so
 ```
 
-When launching the job, export `MYHADDIR`:
+Export `MYHADDIR` when launching the job:
 
 ```bash
 export MYHADDIR=/lustre/hades/user/vkladov/packages/KinFit
 ```
 
-Alternatively, copy the ONNX Runtime `include/` and library files to your own
-third-party directory and export that directory as `MYHADDIR`.
+If you use your own third-party directory, copy the ONNX Runtime `include/` and
+library files there and export that directory as `MYHADDIR`.
 
-### Use it in an analysis
+### Run PID in an analysis
 
-For each `HParticleCand`, the wrapper can return:
+Create one `HNetworkPID` object and reuse it for all candidates. The main
+methods are:
 
-- `getPredictionProbability(input)`: the five PID probabilities.
-- `getPredictionFull(x)`: the single best PID index, or `-1` if the input is
-  rejected or the best class is not sufficiently separated from the others.
-- `getPredictionLooseFull(x)`: all PID indices with probability above `0.35`,
-  sorted from highest to lowest probability.
+- `getPredictionProbability(input)`: returns the five class probabilities.
+- `getPredictionFull(x)`: returns the best PID index, or `-1` if the candidate
+  is rejected or the best class is not separated enough.
+- `getPredictionLooseFull(x)`: returns all PID indices with probability above
+  `0.35`, sorted from highest to lowest probability.
 
 Example:
 
@@ -158,7 +164,7 @@ for (HParticleCand* x : particles) {
 }
 ```
 
-Useful helper methods:
+Helper methods are available if you need lower-level access:
 
 ```cpp
 bool nnInputIsGood(HParticleCand* x);
@@ -166,11 +172,10 @@ vector<float> get_NN_Input_Pars(HParticleCand* x);
 vector<float> getPredictionProbability(vector<float> inputTensorValues);
 ```
 
-`nnInputIsGood` applies basic sanity cuts before inference. The current wrapper
-rejects candidates with unphysical or out-of-training-range values, for example
-bad mass squared, momentum, MDC dE/dx, or beta. Rejected candidates return `-1`
-for the strict prediction and an empty vector for the loose prediction.
+`nnInputIsGood` applies basic range checks before inference. Candidates outside
+the accepted range return `-1` for the strict prediction and an empty vector for
+the loose prediction.
 
-The C++ wrapper currently expects the ONNX model files and normalization text
-files at the paths hard-coded in `HNetworkPID.C`; update those paths only when
-you know where the files are installed for your analysis.
+The wrapper expects the ONNX model files and normalization text files at the
+paths configured inside `HNetworkPID.C`. Keep those paths as they are unless you
+move the exported model or normalization files.
