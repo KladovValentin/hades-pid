@@ -174,11 +174,13 @@ class DataManager():
 
         if (mod == "simLabel"):
             #rootPath = rootPath + "sim41Gen3/*sim*.root"
-            rootPath = rootPath + "sim41Gen3_1/*sim*.root"
+            #rootPath = rootPath + "sim41Gen3_1/*sim*.root"
+            rootPath = rootPath + "sim41Gen4_1/*sim*.root"
         else:
             #rootPath = rootPath + "data41/pid_data_ascii_random.root:pid"
             #rootPath = rootPath + "data41/*exp*.root:pid"
-            rootPath = rootPath + "dataNodEdxCorr/*exp*.root:pid"
+            #rootPath = rootPath + "dataNodEdxCorr/*exp*.root:pid"
+            rootPath = rootPath + "dataGen4_1/*exp*.root:pid"
         fileC = 0
         batches = []
         for batch in uproot.iterate([rootPath],library="pd"):
@@ -194,18 +196,20 @@ class DataManager():
         del batches
         
         selection = (
-            (setTable['beta'] < 1.3) &
+            (setTable['beta'] < 1.5) &
             ((setTable['charge'] == -1) | (setTable['charge'] == 1)) &
             (setTable['mass2'] > -1.5) &
             (setTable['mass2'] < 2.5) &
             (setTable['momentum'] > 0.05) &
             (setTable['momentum'] < 5) &
             (setTable['mdcdedx'] > 0.1) &
-            ((setTable['mdcdedx'] < 15) | ((setTable['charge'] == 1) & (setTable['mdcdedx'] < 50)))
+            ((setTable['mdcdedx'] < 30) | ((setTable['charge'] == 1) & (setTable['mdcdedx'] < 100)))
         )
         #selection = (setTable['beta']<1.3) & (setTable['charge']>-10) & (setTable['mass2']>-1.5) & (setTable['mass2']<2.5) & (setTable['momentum']>0.05) & (setTable['momentum']<5) & (setTable['mdcdedx']>0.1) & (setTable['mdcdedx']<15 | (setTable['charge']>0 & setTable['mdcdedx']<50 ))
-        #setTable = setTable.loc[selection].copy().reset_index()
+        setTable = setTable.loc[selection].copy().reset_index()
         del selection
+
+        setTable['mdcdedx'] = np.log(setTable['mdcdedx'])
 
         print(setTable)
 
@@ -222,7 +226,7 @@ class DataManager():
             #ttables[1] = ttables[1].sample(frac=0.8).copy()
 
             expWeights = [0.7024254304135277,0.9141199407231614,3.7419080282468262,9.768587299547331,0.47330540899197004]
-            expAmounts = [1065649,753785,70525,46182,1487686]
+            expAmounts = [1065649,753785,130525,46182,1487686]
             simAmounts = [ttables[i].shape[0] for i in range(5)]
             scales = [expAmounts[i]/simAmounts[i] for i in range(5)]
 
@@ -336,7 +340,6 @@ class DataManager():
         stdValues = np.loadtxt(os.path.join("nndata",'stdValues' + self.dataSetType + '.txt'))
         return meanValues, stdValues
         
-
 
 
 

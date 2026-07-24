@@ -27,7 +27,8 @@ import ROOT
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
 torch.cuda.empty_cache()
 
-dataSetType = 'NewKIsUsed'
+#dataSetType = 'NewKIsUsed'
+dataSetType = 'gen4'
 dataManager = DataManager(dataSetType)
 
 
@@ -347,6 +348,11 @@ def draw_2d_param_spread(tables, column1, column2):
     class_hist1 = [tables[4][column1].to_numpy(),tables[4][column2].to_numpy()]
     class_hist2 = [tables[2][column1].to_numpy(),tables[2][column2].to_numpy()]
 
+    #print(class_hist0[1])
+    #print(class_hist2[1])
+    print(len(class_hist2[0]))
+    print(class_hist2)
+
     # Print class shares vs binned column1 (momentum)
     all_col1 = np.concatenate([t[column1].to_numpy() for t in tables if column1 in t.columns])
     if all_col1.size > 0:
@@ -393,11 +399,9 @@ def draw_2d_param_spread(tables, column1, column2):
         plt.plot(xp,yp,'black')
 
     h1 = plt.hist2d(class_hist0[0],class_hist0[1], bins = 300, cmin=5, cmap=plt.cm.jet)
-    h2 = plt.hist2d(class_hist2[0],class_hist2[1], bins = 100, cmin=1, cmap=plt.cm.jet)
+    h2 = plt.hist2d(class_hist2[0],class_hist2[1], bins = 100, cmin=5, cmap=plt.cm.jet)
     h0 = plt.hist2d(class_hist1[0],class_hist1[1], bins = 300, cmin=5, cmap=plt.cm.jet)
     plt.colorbar(h2[3])
-    print(len(class_hist2[0]))
-    print(class_hist2)
     #plt.hist2d(class_hist2[0],class_hist2[1], bins = 300, cmap = "RdYlBu_r", norm = colors.LogNorm())
     if (column2 == "beta"):
         plt.ylim([0,1.5])
@@ -611,10 +615,10 @@ def analyseOutput(predFileName, experiment_path,mod):
     #draw_probabilities_spread(tablesPClasses[1],tablesPClasses[1])
     if (mod == "sim"):
         #draw_probabilities_vs_parameter(tablesPClasses,tablesClasses2, 'mass2')
-        draw_confusion_matrix(np.array(mask),np.array(mask2))
+        #    draw_confusion_matrix(np.array(mask),np.array(mask2))
         plot_roc_curves(dftCorrExp['pid'].to_numpy(),pT.to_numpy()[:,:5], class_names=['$\pi^{+}$','$\pi^{-}$','$K^{+}$','$K^{-}$','p'])    #for each true class from sim -> how they are identified.
         #draw_2d_param_spread(tablesClasses,'momentum','mdcdedx')
-        draw_2d_param_spread(tablesClasses,'momentum','beta')
+        #    draw_2d_param_spread(tablesClasses,'momentum','beta')
         #draw_2d_param_spread(tablesClasses,'momentum','newColK')
         #draw_parameter_spread(tablesClasses,'mass2')
         print("sim")
@@ -732,14 +736,24 @@ def predict(fName, oName):
 #dataSetType = 'NewKIsUsed'
 
 #print("start python predict")
-#predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
-#predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
+if os.environ.get("DANN_SWEEP") == "1":
+    sim_file = 'predictedSim' + dataSetType + '.parquet'
+    predict('simu' + dataSetType + '.parquet', sim_file)
+    scores = pandas.read_parquet(os.path.join('nndata', sim_file)).to_numpy()[:, :5]
+    labels = pandas.read_parquet(os.path.join('nndata', 'simuTest' + dataSetType + '.parquet'))['pid'].to_numpy()
+    auc_k_plus = auc(*roc_curve(labels == 2, scores[:, 2])[:2])
+    auc_k_minus = auc(*roc_curve(labels == 3, scores[:, 3])[:2])
+    print(f"SWEEP_RESULT auc_k_plus={auc_k_plus:.9f} auc_k_minus={auc_k_minus:.9f} product={auc_k_plus * auc_k_minus:.9f}")
+    sys.exit(0)
+
+predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
+predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
 #analyseOutput('predictedExp' + dataSetType + '.parquet','expuTest' + dataSetType + '.parquet',"exp")
-#analyseOutput('predictedSim' + dataSetType + '.parquet','simuTest' + dataSetType + '.parquet',"sim")
+analyseOutput('predictedSim' + dataSetType + '.parquet','simuTest' + dataSetType + '.parquet',"sim")
 
 #analyseExpAndSim('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet', 'predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
 
 #plt.show()
 
 
-plotSimpleComp()
+#plotSimpleComp()

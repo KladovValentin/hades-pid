@@ -29,8 +29,34 @@ if device == "cuda:0":
 #print(torch.cuda.memory_allocated(0))
 #print(torch.cuda.memory_reserved(0))
 
-dataSetType = 'NewKIsUsed'
+dataSetType = 'gen4'
 dataManager = DataManager(dataSetType)
+sweep_seed = int(os.environ.get("DANN_SEED", 42))
+np.random.seed(sweep_seed)
+torch.manual_seed(sweep_seed)
+
+
+def charge_balanced_domain_loss(pred_sim, pred_exp, x_sim, x_exp,
+                                loss_domain, charge_index, zero_charge_value):
+    """Give the positive and negative charge groups equal domain-loss weight."""
+    losses = []
+    for positive in (False, True):
+        sim_mask = (x_sim[:, charge_index] > zero_charge_value) == positive
+        exp_mask = (x_exp[:, charge_index] > zero_charge_value) == positive
+        if sim_mask.any() and exp_mask.any():
+            sim_labels = torch.zeros(int(sim_mask.sum()), dtype=torch.long, device=x_sim.device)
+            exp_labels = torch.ones(int(exp_mask.sum()), dtype=torch.long, device=x_exp.device)
+            losses.append(
+                loss_domain(
+                    torch.cat((pred_sim[sim_mask], pred_exp[exp_mask]), dim=0),
+                    torch.cat((sim_labels, exp_labels), dim=0)
+                )
+            )
+    if not losses:
+        raise RuntimeError("A DANN batch contains no usable positive/negative charge groups")
+    # CrossEntropyLoss uses reduction='mean' by default, so each item is already
+    # averaged over its charge subset. Sum the negative- and positive-charge losses.
+    return torch.stack(losses).sum()
 
 
 def train_DN_model(model, train_loader, loss, optimizer, num_epochs, valid_loader, scheduler=None):
@@ -298,7 +324,7 @@ def train_DANN_model(model, sim_loader, exp_loader, val_exp_loader, val_sim_load
     return 1
 
 
-def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_loader, val_exp_loader, val_sim_loader, lossClass, lossDomain, optimizer, num_epochs, scheduler):
+def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_loader, val_exp_loader, val_sim_loader, lossClass, lossDomain, optimizer, num_epochs, scheduler, charge_index, zero_charge_value):
     loss_history = []
     train_history = []
     validLoss_history = []
@@ -368,7 +394,10 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
 
             #print(s_class)
             #print(domain_prede)
-            domain_loss = lossDomain(domain_preds,domain_label) + lossDomain(domain_prede,domain_labele)# + abs(running_accDs-running_accDe)
+            domain_loss = charge_balanced_domain_loss(
+                domain_preds, domain_prede, s_x, e_x, lossDomain,
+                charge_index, zero_charge_value
+            )
             #domain_loss = lossDomain(domain_pred, combined_domain_label)
             
             #if (epoch // 2 * 2 != epoch):
@@ -444,17 +473,21 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
 
 def train_NN(simulation_path, experiment_path):
     print("start nn training")
-    
-    batch_size = 1024*32
+
+    batch_size = int(os.environ.get("DANN_BATCH_SIZE", 1024*16))
+    learning_rate = float(os.environ.get("DANN_LR", 0.001))
+    weight_decay = float(os.environ.get("DANN_WEIGHT_DECAY", 0.0001))
+    print(f"hyperparameters: lr={learning_rate}, weight_decay={weight_decay}, batch_size={batch_size}")
 
     dftCorr = pandas.read_parquet(os.path.join("nndata",simulation_path))
-    dftCorr = dataManager.normalizeDataset(dftCorr).sample(frac=1.0).reset_index(drop=True) # with shuffling
-    dataTable = dftCorr.sample(frac=0.8).sort_index()
+    charge_index = dftCorr.columns.get_loc('charge')
+    dftCorr = dataManager.normalizeDataset(dftCorr).sample(frac=1.0, random_state=sweep_seed).reset_index(drop=True) # with shuffling
+    dataTable = dftCorr.sample(frac=0.8, random_state=sweep_seed).sort_index()
     validTable = dftCorr.drop(dataTable.index)
 
     dftCorrExp = pandas.read_parquet(os.path.join("nndata",experiment_path))
-    dftCorrExp = dataManager.normalizeDataset(dftCorrExp).sample(frac=1.0).reset_index(drop=True) # with shuffling
-    dataTableExp = dftCorrExp.sample(frac=0.8).sort_index()
+    dftCorrExp = dataManager.normalizeDataset(dftCorrExp).sample(frac=1.0, random_state=sweep_seed).reset_index(drop=True) # with shuffling
+    dataTableExp = dftCorrExp.sample(frac=0.8, random_state=sweep_seed).sort_index()
     validTableExp = dftCorrExp.drop(dataTableExp.index)
     
     train_dataset = My_dataset(load_dataset(dataTable))
@@ -480,8 +513,8 @@ def train_NN(simulation_path, experiment_path):
     beta = 0.99 #hyperparameter for smart reweightening
     for i in range(nClasses):
         #weights[indicesWeights[i]] = math.sqrt(1./nClasses * 1./valuesWeights[i])
-        #weights[indicesWeights[i]] = 1./nClasses * 1./valuesWeights[i]
-        weights[indicesWeights[i]] = 1./nClasses * (1.-beta)/(1-beta**valuesWeights[i])
+        weights[indicesWeights[i]] = 1./nClasses * 1./valuesWeights[i]
+        #weights[indicesWeights[i]] = 1./nClasses * (1.-beta)/(1-beta**valuesWeights[i])
     weights[2] = weights[2]/2
     weights[3] = weights[3]/3
     #weights = [1,1,1,0.5,1]
@@ -522,17 +555,19 @@ def train_NN(simulation_path, experiment_path):
     #loss_domain = nn.BCELoss()
 
     #optimizer = optim.SGD(nn_model.parameters(), lr=0.0001, momentum=0.9, weight_decay=0.0)
-    optimizer = optim.AdamW(list(encoder.parameters())+list(classifier.parameters())+list(discriminator.parameters()), lr=0.0004, betas=(0.5, 0.99), weight_decay=0.0001)
+    optimizer = optim.AdamW(list(encoder.parameters())+list(classifier.parameters())+list(discriminator.parameters()), lr=learning_rate, betas=(0.5, 0.99), weight_decay=weight_decay)
     #optimizer = optim.AdamW(discriminator.parameters(), lr=0.003, betas=(0.9, 0.999), weight_decay=0.0000)
     #optimizer = optim.AdamW(nn_model.parameters(), lr=0.00003, betas=(0.5, 0.9), weight_decay=0.0001)
     #optimizer = optim.Adam(list(encoder.parameters())+list(classifier.parameters())+list(discriminator.parameters()), lr=0.00003, weight_decay=0.0)
 
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.2)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.3)
     #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, threshold=0.2, factor=0.2)
 
     print("prepared to train nn")
     #train_DN_model(nn_model, train_loader, loss, optimizer, 10, valid_loader, scheduler = scheduler)
-    train_Proper_DANN_model(encoder,classifier,discriminator, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 2, scheduler)
+    mean_values, std_values = dataManager.readTrainData()
+    zero_charge_value = -mean_values[charge_index] / std_values[charge_index]
+    train_Proper_DANN_model(encoder,classifier,discriminator, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 4, scheduler, charge_index, zero_charge_value)
     #train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 3, scheduler=scheduler)
 
     torch.onnx.export(nn_model.cpu(),                                # model being run
@@ -564,4 +599,3 @@ print("start_train_python")
 #dataManager.compareInitialDistributions()
 
 train_NN('simu' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')
-
