@@ -1,6 +1,8 @@
 
 import sys
 import math
+import copy
+import json
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -17,6 +19,7 @@ from pympler import asizeof
 from models.model import DANN, Encoder, Classifier, Discriminator
 from models.model import Model
 from dataHandling import My_dataset, DataManager, load_dataset
+from dann_diagnostics import validation_metrics, gradient_metrics
 
 
 device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -38,25 +41,26 @@ torch.manual_seed(sweep_seed)
 
 def charge_balanced_domain_loss(pred_sim, pred_exp, x_sim, x_exp,
                                 loss_domain, charge_index, zero_charge_value):
-    """Give the positive and negative charge groups equal domain-loss weight."""
+    """Give both domains and both charge groups equal domain-loss weight."""
     losses = []
     for positive in (False, True):
         sim_mask = (x_sim[:, charge_index] > zero_charge_value) == positive
         exp_mask = (x_exp[:, charge_index] > zero_charge_value) == positive
+        # Skip the entire charge pair if either domain is absent. This retains
+        # a 50/50 domain prior without making small final batches fail.
         if sim_mask.any() and exp_mask.any():
-            sim_labels = torch.zeros(int(sim_mask.sum()), dtype=torch.long, device=x_sim.device)
-            exp_labels = torch.ones(int(exp_mask.sum()), dtype=torch.long, device=x_exp.device)
-            losses.append(
-                loss_domain(
-                    torch.cat((pred_sim[sim_mask], pred_exp[exp_mask]), dim=0),
-                    torch.cat((sim_labels, exp_labels), dim=0)
-                )
+            sim_labels = torch.zeros(
+                int(sim_mask.sum()), dtype=torch.long, device=x_sim.device
             )
+            exp_labels = torch.ones(
+                int(exp_mask.sum()), dtype=torch.long, device=x_exp.device
+            )
+            losses.append(loss_domain(pred_sim[sim_mask], sim_labels))
+            losses.append(loss_domain(pred_exp[exp_mask], exp_labels))
     if not losses:
-        raise RuntimeError("A DANN batch contains no usable positive/negative charge groups")
-    # CrossEntropyLoss uses reduction='mean' by default, so each item is already
-    # averaged over its charge subset. Sum the negative- and positive-charge losses.
-    return torch.stack(losses).sum()
+        raise RuntimeError("A DANN batch contains no shared charge group")
+    # The random-prediction reference is log(2), independent of group sizes.
+    return torch.stack(losses).mean()
 
 
 def train_DN_model(model, train_loader, loss, optimizer, num_epochs, valid_loader, scheduler=None):
@@ -471,24 +475,331 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
     return 1
 
 
+def validate_Corrected_DANN_model(encoder, classifier, discriminator,
+                                  val_sim_loader, val_exp_loader, features,
+                                  charge_index, seed, batch_size,
+                                  probe_samples, probe_epochs,
+                                  domain_weight=1.0):
+    """Run held-out classifier, discriminator, and fresh-probe validation."""
+    sim_dataset = val_sim_loader.dataset
+    exp_dataset = val_exp_loader.dataset
+    sim_data = (
+        sim_dataset.datasetX.cpu().numpy(),
+        sim_dataset.datasetY.cpu().numpy(),
+    )
+    exp_data = (
+        exp_dataset.datasetX.cpu().numpy(),
+        exp_dataset.datasetY.cpu().numpy(),
+    )
+    metrics = validation_metrics(
+        encoder, classifier, discriminator, sim_data, exp_data, features,
+        torch.device(device), batch_size, seed, probe_samples, probe_epochs,
+    )
+    metrics.update(gradient_metrics(
+        encoder, classifier, discriminator, val_sim_loader, val_exp_loader,
+        charge_index, torch.device(device), "charge", 1.0, domain_weight,
+    ))
+    return metrics
+
+
+def load_Corrected_DANN_warm_start(module, checkpoint_path, component_name):
+    """Load one warm-start component with a useful filename/type error."""
+    if not os.path.isfile(checkpoint_path):
+        raise FileNotFoundError(
+            f"DANN warm-start {component_name} checkpoint does not exist: "
+            f"{checkpoint_path}"
+        )
+    state_dict = torch.load(
+        checkpoint_path, map_location=device, weights_only=True
+    )
+    try:
+        module.load_state_dict(state_dict)
+    except RuntimeError as error:
+        state_keys = list(state_dict)
+        first_key = state_keys[0] if state_keys else "<empty state dict>"
+        raise RuntimeError(
+            f"DANN warm-start file {checkpoint_path!r} is not a valid "
+            f"{component_name} checkpoint (first key: {first_key!r}). "
+            "The file may have been renamed from another model component."
+        ) from error
+    print(f"Loaded DANN warm-start {component_name}: {checkpoint_path}")
+
+
+def warmup_Corrected_DANN_discriminator(encoder, discriminator, sim_loader,
+                                        exp_loader, lossDomain, optimizer,
+                                        num_epochs, charge_index,
+                                        zero_charge_value):
+    """Train a fresh discriminator while keeping the encoder frozen."""
+    encoder.eval()
+    discriminator.train()
+    losses = []
+    for epoch in range(num_epochs):
+        tepoch = tqdm(zip(sim_loader, exp_loader),
+                      total=min(len(sim_loader), len(exp_loader)))
+        for (s_x, _), (e_x, _) in tepoch:
+            s_x = s_x.to(device)
+            e_x = e_x.to(device)
+            with torch.no_grad():
+                sim_feature = encoder(s_x)
+                exp_feature = encoder(e_x)
+            optimizer.zero_grad(set_to_none=True)
+            domain_loss = charge_balanced_domain_loss(
+                discriminator.domain_logits(sim_feature),
+                discriminator.domain_logits(exp_feature),
+                s_x, e_x, lossDomain, charge_index, zero_charge_value,
+            )
+            domain_loss.backward()
+            optimizer.step()
+            losses.append(float(domain_loss.detach().cpu()))
+            tepoch.set_description(f"Discriminator warm-up {epoch + 1}")
+            tepoch.set_postfix(domain_loss=losses[-1])
+    return float(np.mean(losses)) if losses else None
+
+
+def corrected_DANN_domain_score(validation):
+    """Average held-out domain separability, independent of AUC direction."""
+    aucs = [
+        validation["latent_probe_auc"],
+        validation["fresh_probe_auc_negative_charge"],
+        validation["fresh_probe_auc_predicted_k_minus"],
+    ]
+    aucs = [value for value in aucs if value is not None]
+    return float(np.mean([abs(value - 0.5) for value in aucs]))
+
+
+def train_Corrected_DANN_model(
+        encoder, classifier, discriminator, sim_loader, exp_loader,
+        val_exp_loader, val_sim_loader, lossClass, lossDomain,
+        main_optimizer, discriminator_optimizer, num_epochs,
+        charge_index, zero_charge_value, discriminator_warmup_epochs,
+        discriminator_steps, domain_weight, features, output_tag, seed,
+        probe_samples, probe_epochs, minimum_accuracy,
+        max_class_accuracy_drop):
+    """Corrected alternating DANN path; legacy trainers above remain available."""
+    baseline_validation = validate_Corrected_DANN_model(
+        encoder, classifier, discriminator, val_sim_loader, val_exp_loader,
+        features, charge_index, seed, sim_loader.batch_size,
+        probe_samples, probe_epochs, domain_weight,
+    )
+    print("DANN baseline validation:")
+    print(json.dumps(baseline_validation, indent=2))
+
+    baseline_score = corrected_DANN_domain_score(baseline_validation)
+    baseline_encoder_state = copy.deepcopy(encoder.state_dict())
+    baseline_classifier_state = copy.deepcopy(classifier.state_dict())
+    baseline_discriminator_state = copy.deepcopy(discriminator.state_dict())
+
+    warmup_loss = warmup_Corrected_DANN_discriminator(
+        encoder, discriminator, sim_loader, exp_loader, lossDomain,
+        discriminator_optimizer, discriminator_warmup_epochs,
+        charge_index, zero_charge_value,
+    )
+    history = []
+    best_score = baseline_score
+    # If no epoch improves safely, retain the complete baseline checkpoint.
+    # Keeping the post-warmup discriminator here would make the saved triplet
+    # inconsistent with the baseline validation used for selection.
+    best_state = {
+        "encoder": baseline_encoder_state,
+        "classifier": baseline_classifier_state,
+        "discriminator": baseline_discriminator_state,
+    }
+    selected_epoch = 0
+    len_dataloader = min(len(sim_loader), len(exp_loader))
+    total_steps = num_epochs * len_dataloader
+
+    for epoch in range(num_epochs):
+        encoder.train()
+        classifier.train()
+        discriminator.train()
+        class_losses = []
+        domain_losses = []
+        tepoch = tqdm(enumerate(zip(sim_loader, exp_loader)),
+                      total=len_dataloader)
+        for i_step, ((s_x, s_y), (e_x, _)) in tepoch:
+            s_x = s_x.to(device)
+            s_y = s_y.long().flatten().to(device)
+            e_x = e_x.to(device)
+
+            global_step = epoch * len_dataloader + i_step
+            p = float(global_step) / max(total_steps - 1, 1)
+            alpha = 2. / (1. + np.exp(-10 * p)) - 1
+
+            # Discriminator-only updates: detached features prevent encoder
+            # gradients, while multiple steps keep the adversary informative.
+            with torch.no_grad():
+                sim_feature_detached = encoder(s_x)
+                exp_feature_detached = encoder(e_x)
+            for _ in range(discriminator_steps):
+                discriminator_optimizer.zero_grad(set_to_none=True)
+                discriminator_loss = charge_balanced_domain_loss(
+                    discriminator.domain_logits(sim_feature_detached),
+                    discriminator.domain_logits(exp_feature_detached),
+                    s_x, e_x, lossDomain, charge_index, zero_charge_value,
+                )
+                discriminator_loss.backward()
+                discriminator_optimizer.step()
+
+            # Encoder/classifier update: discriminator parameters are frozen,
+            # but its input derivative is retained and reversed for encoder.
+            main_optimizer.zero_grad(set_to_none=True)
+            sim_feature = encoder(s_x)
+            exp_feature = encoder(e_x)
+            class_logits = classifier(sim_feature)
+            class_loss = lossClass(class_logits, s_y)
+            discriminator.requires_grad_(False)
+            domain_loss = charge_balanced_domain_loss(
+                discriminator(sim_feature, alpha),
+                discriminator(exp_feature, alpha),
+                s_x, e_x, lossDomain, charge_index, zero_charge_value,
+            )
+            total_loss = class_loss + domain_weight * domain_loss
+            total_loss.backward()
+            main_optimizer.step()
+            discriminator.requires_grad_(True)
+
+            class_losses.append(float(class_loss.detach().cpu()))
+            domain_losses.append(float(domain_loss.detach().cpu()))
+            running_acc = float(
+                (class_logits.detach().argmax(dim=1) == s_y).float().mean().cpu()
+            )
+            tepoch.set_description(f"Corrected DANN epoch {epoch + 1}")
+            tepoch.set_postfix(
+                loss=class_losses[-1], lossDom=domain_losses[-1],
+                acc=running_acc * 100, alpha=alpha,
+            )
+
+        validation = validate_Corrected_DANN_model(
+            encoder, classifier, discriminator, val_sim_loader,
+            val_exp_loader, features, charge_index, seed,
+            sim_loader.batch_size, probe_samples, probe_epochs,
+            domain_weight,
+        )
+        epoch_record = {
+            "epoch": epoch + 1,
+            "mean_class_loss": float(np.mean(class_losses)),
+            "mean_domain_loss": float(np.mean(domain_losses)),
+            "validation": validation,
+        }
+        history.append(epoch_record)
+        print("DANN validation:")
+        print(json.dumps(epoch_record, indent=2))
+
+        score = corrected_DANN_domain_score(validation)
+        class_accuracy_retained = all(
+            validation["classification_accuracy_per_class"][class_index]
+            >= baseline_accuracy - max_class_accuracy_drop
+            for class_index, baseline_accuracy in
+            baseline_validation["classification_accuracy_per_class"].items()
+        )
+        if (validation["classification_accuracy"] >= minimum_accuracy
+                and class_accuracy_retained
+                and score < baseline_score and score < best_score):
+            best_score = score
+            best_state = {
+                "encoder": copy.deepcopy(encoder.state_dict()),
+                "classifier": copy.deepcopy(classifier.state_dict()),
+                "discriminator": copy.deepcopy(discriminator.state_dict()),
+            }
+            selected_epoch = epoch + 1
+
+        metrics_path = os.path.join("nndata", "dannMetrics" + output_tag + ".json")
+        with open(metrics_path, "w", encoding="utf-8") as metrics_file:
+            json.dump({
+                "baseline_validation": baseline_validation,
+                "warmup_loss": warmup_loss,
+                "epochs": history,
+            }, metrics_file, indent=2)
+
+    if selected_epoch == 0:
+        print(
+            "DANN checkpoint selection: no epoch passed all guardrails; "
+            "retaining the warm-start encoder/classifier."
+        )
+    else:
+        print(f"DANN checkpoint selection: selected epoch {selected_epoch}")
+    encoder.load_state_dict(best_state["encoder"])
+    classifier.load_state_dict(best_state["classifier"])
+    discriminator.load_state_dict(best_state["discriminator"])
+    torch.save(encoder.state_dict(),
+               os.path.join("nndata", "encoder" + output_tag + ".pt"))
+    torch.save(classifier.state_dict(),
+               os.path.join("nndata", "classifier" + output_tag + ".pt"))
+    torch.save(discriminator.state_dict(),
+               os.path.join("nndata", "discriminator" + output_tag + ".pt"))
+    metrics_path = os.path.join("nndata", "dannMetrics" + output_tag + ".json")
+    with open(metrics_path, "w", encoding="utf-8") as metrics_file:
+        json.dump({
+            "baseline_validation": baseline_validation,
+            "warmup_loss": warmup_loss,
+            "epochs": history,
+            "checkpoint_selection": {
+                "selected_epoch": selected_epoch,
+                "baseline_domain_separability_score": baseline_score,
+                "selected_domain_separability_score": best_score,
+            },
+        }, metrics_file, indent=2)
+    encoder.eval()
+    classifier.eval()
+    discriminator.eval()
+    return history
+
+
 def train_NN(simulation_path, experiment_path):
     print("start nn training")
 
-    batch_size = int(os.environ.get("DANN_BATCH_SIZE", 1024*16))
-    learning_rate = float(os.environ.get("DANN_LR", 0.001))
-    weight_decay = float(os.environ.get("DANN_WEIGHT_DECAY", 0.0001))
+    batch_size = int(os.environ.get("DANN_BATCH_SIZE", 4096))
+    cpu_threads = int(os.environ.get("DANN_CPU_THREADS", 2))
+    if device == "cpu":
+        torch.set_num_threads(cpu_threads)
+    learning_rate = float(os.environ.get("DANN_LR", 0.00003))
+    weight_decay = float(os.environ.get("DANN_WEIGHT_DECAY", 0.00001))
+    discriminator_learning_rate = float(os.environ.get("DANN_DISCRIMINATOR_LR", 0.001))
+    sample_fraction = float(os.environ.get("DANN_SAMPLE_FRACTION", 0.8))
+    num_epochs = int(os.environ.get("DANN_EPOCHS", 2))
+    discriminator_warmup_epochs = int(os.environ.get("DANN_DISCRIMINATOR_WARMUP_EPOCHS", 0))
+    discriminator_steps = int(os.environ.get("DANN_DISCRIMINATOR_STEPS", 5))
+    domain_weight = float(os.environ.get("DANN_DOMAIN_WEIGHT", 0.5))
+    probe_samples = int(os.environ.get("DANN_PROBE_SAMPLES", 30000))
+    probe_epochs = int(os.environ.get("DANN_PROBE_EPOCHS", 8))
+    minimum_accuracy = float(os.environ.get("DANN_MIN_VALID_ACCURACY", 0.97))
+    max_class_accuracy_drop = float(os.environ.get("DANN_MAX_CLASS_ACCURACY_DROP", 0.04))
+    warm_start = True # Set False to initialize encoder/classifier from scratch.
+    if "DANN_WARM_START" in os.environ:
+        warm_start = os.environ["DANN_WARM_START"].lower() not in (
+            "0", "false", "no"
+        )
+    output_tag = os.environ.get("DANN_OUTPUT_TAG", "" + dataSetType)
+    warm_start_tag = os.environ.get("DANN_WARM_START_TAG", "" + dataSetType)
+    encoder_checkpoint = os.environ.get(
+        "DANN_ENCODER_CHECKPOINT",
+        os.path.join("nndata", "encoder" + warm_start_tag + ".pt"),
+    )
+    classifier_checkpoint = os.environ.get(
+        "DANN_CLASSIFIER_CHECKPOINT",
+        os.path.join("nndata", "classifier" + warm_start_tag + ".pt"),
+    )
     print(f"hyperparameters: lr={learning_rate}, weight_decay={weight_decay}, batch_size={batch_size}")
 
     dftCorr = pandas.read_parquet(os.path.join("nndata",simulation_path))
     charge_index = dftCorr.columns.get_loc('charge')
-    dftCorr = dataManager.normalizeDataset(dftCorr).sample(frac=1.0, random_state=sweep_seed).reset_index(drop=True) # with shuffling
-    dataTable = dftCorr.sample(frac=0.8, random_state=sweep_seed).sort_index()
-    validTable = dftCorr.drop(dataTable.index)
+    features = list(dftCorr.columns[:-1])
+    # Full-dataset alternative retained:
+    #dftCorr = dataManager.normalizeDataset(dftCorr).sample(frac=1.0, random_state=sweep_seed).reset_index(drop=True) # with shuffling
+    #dataTable = dftCorr.sample(frac=0.8, random_state=sweep_seed).sort_index()
+    #validTable = dftCorr.drop(dataTable.index)
+    dataTable, validTable = dataManager.trainingSplit(
+        dftCorr, sample_fraction=sample_fraction, seed=sweep_seed
+    )
 
     dftCorrExp = pandas.read_parquet(os.path.join("nndata",experiment_path))
-    dftCorrExp = dataManager.normalizeDataset(dftCorrExp).sample(frac=1.0, random_state=sweep_seed).reset_index(drop=True) # with shuffling
-    dataTableExp = dftCorrExp.sample(frac=0.8, random_state=sweep_seed).sort_index()
-    validTableExp = dftCorrExp.drop(dataTableExp.index)
+    # Full-dataset alternative retained:
+    #dftCorrExp = dataManager.normalizeDataset(dftCorrExp).sample(frac=1.0, random_state=sweep_seed).reset_index(drop=True) # with shuffling
+    #dataTableExp = dftCorrExp.sample(frac=0.8, random_state=sweep_seed).sort_index()
+    #validTableExp = dftCorrExp.drop(dataTableExp.index)
+    dataTableExp, validTableExp = dataManager.trainingSplit(
+        dftCorrExp, sample_fraction=sample_fraction, seed=sweep_seed + 1
+    )
     
     train_dataset = My_dataset(load_dataset(dataTable))
     valid_dataset = My_dataset(load_dataset(validTable))
@@ -524,7 +835,8 @@ def train_NN(simulation_path, experiment_path):
     input_dim = train_dataset[0][0].shape[0]
     print("input dim is   ", input_dim)
 
-    del validTable, valid_dataset, dftCorr, batch_size
+    #del validTable, valid_dataset, dftCorr, batch_size
+    del validTable, valid_dataset, dftCorr
     del exp_dataset, dftCorrExp, exp_valset, dataTableExp, validTableExp
 
     #nn_model = Model(input_dim=input_dim, output_dim=nClasses)
@@ -535,6 +847,23 @@ def train_NN(simulation_path, experiment_path):
     encoder = Encoder(input_dim=input_dim, output_dim=latentDim).type(torch.FloatTensor).to(device)
     classifier = Classifier(input_dim=latentDim, output_dim=nClasses).type(torch.FloatTensor).to(device)
     discriminator = Discriminator(input_dim=latentDim, output_dim=2).type(torch.FloatTensor).to(device)
+
+    if warm_start:
+        # Original dataset-tag alternatives retained:
+        #encoder.load_state_dict(torch.load(
+        #    os.path.join("nndata", "encoder" + dataSetType + ".pt"),
+        #    map_location=device, weights_only=True
+        #))
+        #classifier.load_state_dict(torch.load(
+        #    os.path.join("nndata", "classifier" + dataSetType + ".pt"),
+        #    map_location=device, weights_only=True
+        #))
+        load_Corrected_DANN_warm_start(
+            encoder, encoder_checkpoint, "encoder"
+        )
+        load_Corrected_DANN_warm_start(
+            classifier, classifier_checkpoint, "classifier"
+        )
 
     #exported_program = torch.export.export(DANN(input_dim=input_dim, output_dim=nClasses), (torch.randn(2,input_dim),))
     #torch.export.save(exported_program, 'exported_program.pt2')
@@ -560,6 +889,15 @@ def train_NN(simulation_path, experiment_path):
     #optimizer = optim.AdamW(nn_model.parameters(), lr=0.00003, betas=(0.5, 0.9), weight_decay=0.0001)
     #optimizer = optim.Adam(list(encoder.parameters())+list(classifier.parameters())+list(discriminator.parameters()), lr=0.00003, weight_decay=0.0)
 
+    main_optimizer = optim.AdamW(
+        list(encoder.parameters())+list(classifier.parameters()),
+        lr=learning_rate, betas=(0.5, 0.99), weight_decay=weight_decay
+    )
+    discriminator_optimizer = optim.AdamW(
+        discriminator.parameters(), lr=discriminator_learning_rate,
+        betas=(0.5, 0.99), weight_decay=weight_decay
+    )
+
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.3)
     #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, threshold=0.2, factor=0.2)
 
@@ -567,8 +905,41 @@ def train_NN(simulation_path, experiment_path):
     #train_DN_model(nn_model, train_loader, loss, optimizer, 10, valid_loader, scheduler = scheduler)
     mean_values, std_values = dataManager.readTrainData()
     zero_charge_value = -mean_values[charge_index] / std_values[charge_index]
-    train_Proper_DANN_model(encoder,classifier,discriminator, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 4, scheduler, charge_index, zero_charge_value)
+    #train_Proper_DANN_model(encoder,classifier,discriminator, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 4, scheduler, charge_index, zero_charge_value)
+    train_Corrected_DANN_model(
+        encoder, classifier, discriminator, train_loader, exp_dataLoader,
+        exp_valLoader, valid_loader, loss, loss_domain, main_optimizer,
+        discriminator_optimizer, num_epochs, charge_index,
+        zero_charge_value, discriminator_warmup_epochs,
+        discriminator_steps, domain_weight, features, output_tag,
+        sweep_seed, probe_samples, probe_epochs, minimum_accuracy,
+        max_class_accuracy_drop
+    )
     #train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 3, scheduler=scheduler)
+
+    metrics_path = os.path.join("nndata", "dannMetrics" + output_tag + ".json")
+    with open(metrics_path, "r", encoding="utf-8") as metrics_file:
+        recorded_metrics = json.load(metrics_file)
+    recorded_metrics["configuration"] = {
+        "batch_size": batch_size,
+        "cpu_threads": cpu_threads if device == "cpu" else None,
+        "sample_fraction": sample_fraction,
+        "epochs": num_epochs,
+        "encoder_classifier_learning_rate": learning_rate,
+        "discriminator_learning_rate": discriminator_learning_rate,
+        "discriminator_warmup_epochs": discriminator_warmup_epochs,
+        "discriminator_steps": discriminator_steps,
+        "domain_weight": domain_weight,
+        "minimum_validation_accuracy": minimum_accuracy,
+        "maximum_per_class_accuracy_drop": max_class_accuracy_drop,
+        "warm_start": warm_start,
+        "warm_start_encoder": encoder_checkpoint if warm_start else None,
+        "warm_start_classifier": classifier_checkpoint if warm_start else None,
+        "seed": sweep_seed,
+        "output_tag": output_tag,
+    }
+    with open(metrics_path, "w", encoding="utf-8") as metrics_file:
+        json.dump(recorded_metrics, metrics_file, indent=2)
 
     torch.onnx.export(nn_model.cpu(),                                # model being run
                   torch.randn(1, input_dim),    # model input (or a tuple for multiple inputs)
@@ -578,12 +949,14 @@ def train_NN(simulation_path, experiment_path):
     
     torch.onnx.export(encoder.cpu(),                                # model being run
                   torch.randn(1, input_dim),    # model input (or a tuple for multiple inputs)
-                  os.path.join("nndata",'encoder' + dataSetType + '.onnx'),           # where to save the model (can be a file or file-like object)
+                  #os.path.join("nndata",'encoder' + dataSetType + '.onnx'),           # production-name alternative
+                  os.path.join("nndata",'encoder' + output_tag + '.onnx'),           # where to save the model (can be a file or file-like object)
                   input_names = ["input"],              # the model's input names
                   output_names = ["features"])            # the model's output names
     torch.onnx.export(classifier.cpu(),                                # model being run
                   torch.randn(1, latentDim),    # model input (or a tuple for multiple inputs)
-                  os.path.join("nndata",'classifier' + dataSetType + '.onnx'),           # where to save the model (can be a file or file-like object)
+                  #os.path.join("nndata",'classifier' + dataSetType + '.onnx'),           # production-name alternative
+                  os.path.join("nndata",'classifier' + output_tag + '.onnx'),           # where to save the model (can be a file or file-like object)
                   input_names = ["features"],              # the model's input names
                   output_names = ["class"])            # the model's output names
 

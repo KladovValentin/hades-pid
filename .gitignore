@@ -29,6 +29,7 @@ env/
 sim*/
 data*/
 nndata/
+dann_runs/
 *parquet
 test*
 temp*

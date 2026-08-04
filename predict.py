@@ -748,7 +748,7 @@ if os.environ.get("DANN_SWEEP") == "1":
 
 predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
 predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
-#analyseOutput('predictedExp' + dataSetType + '.parquet','expuTest' + dataSetType + '.parquet',"exp")
+analyseOutput('predictedExp' + dataSetType + '.parquet','expuTest' + dataSetType + '.parquet',"exp")
 analyseOutput('predictedSim' + dataSetType + '.parquet','simuTest' + dataSetType + '.parquet',"sim")
 
 #analyseExpAndSim('predictedSim' + dataSetType + '.parquet','simu' + dataSetType + '.parquet', 'predictedExp' + dataSetType + '.parquet','expu' + dataSetType + '.parquet')

@@ -234,8 +234,18 @@ class Discriminator(nn.Module):
             nn.Linear(128, output_dim)
         )
 
+    def domain_logits(self, input_data):
+        """Return domain logits without gradient reversal.
+
+        This path is useful when the discriminator is optimized on detached
+        encoder features.  Keeping it explicit also prevents an accidental
+        discriminator update with the reversed encoder gradient.
+        """
+        return self.domain_classifier(input_data)
+
     def forward(self, input_data, alpha):
         reversed_input = ReverseLayerF.apply(input_data, alpha)
-        x = self.domain_classifier(reversed_input)
+        #x = self.domain_classifier(reversed_input)
         #x = self.domain_classifier(input_data)
-        return x
+        #return x
+        return self.domain_logits(reversed_input)

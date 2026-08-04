@@ -16,13 +16,15 @@ import os
 
 class My_dataset(Dataset):
     def __init__(self, dataTable):
-        self.datasetX, self.datasetY = dataTable[0], dataTable[1]
+        dataset_x, dataset_y = dataTable
+        self.datasetX = torch.as_tensor(dataset_x, dtype=torch.float32)
+        self.datasetY = torch.as_tensor(dataset_y)
 
     def __len__(self):
         return len(self.datasetY)
 
     def __getitem__(self, index):
-        return torch.tensor(self.datasetX[index]), torch.tensor(self.datasetY[index])
+        return self.datasetX[index], self.datasetY[index]
 
 
 def load_dataset(dataTable):
@@ -70,6 +72,27 @@ class DataManager():
         #self.features = ['momentum','charge','theta','phi','tofdedx','tof','distmeta','beta','metamatch','mass2']
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tof','distmeta','beta','metamatch','mass2']
         #self.features = ['momentum','charge','theta','phi','mdcdedx','tofdedx','tof','distmeta','metamatch','mass2']
+
+    def trainingSplit(self, table, sample_fraction=1.0, train_fraction=0.8, seed=42):
+        """Select, normalize, shuffle, and split a training table reproducibly.
+
+        Normalization uses the stored common simulation/experiment constants;
+        it is never fitted independently for the two domains.
+        """
+        if not 0.0 < sample_fraction <= 1.0:
+            raise ValueError("sample_fraction must be in (0, 1]")
+        if not 0.0 < train_fraction < 1.0:
+            raise ValueError("train_fraction must be in (0, 1)")
+
+        sampled = table
+        if sample_fraction < 1.0:
+            sampled = table.sample(frac=sample_fraction, random_state=seed)
+        sampled = sampled.reset_index(drop=True)
+        sampled = self.normalizeDataset(sampled.copy())
+        sampled = sampled.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+        train = sampled.sample(frac=train_fraction, random_state=seed).sort_index()
+        valid = sampled.drop(train.index).sort_index()
+        return train, valid
     
 
     def compareInitialDistributions(self):
@@ -183,12 +206,13 @@ class DataManager():
             rootPath = rootPath + "dataGen4_1/*exp*.root:pid"
         fileC = 0
         batches = []
+        sampling_seed = int(os.environ.get("DANN_SEED", 42))
         for batch in uproot.iterate([rootPath],library="pd"):
             print(fileC)
             if mod == "simLabel":
-                batches.append(batch.sample(frac=0.1).reset_index(drop=True))
+                batches.append(batch.sample(frac=0.1, random_state=sampling_seed + fileC).reset_index(drop=True))
             else:
-                batches.append(batch.sample(frac=0.2).reset_index(drop=True))
+                batches.append(batch.sample(frac=0.2, random_state=sampling_seed + fileC).reset_index(drop=True))
             del batch
             fileC = fileC+1
         #
@@ -226,7 +250,7 @@ class DataManager():
             #ttables[1] = ttables[1].sample(frac=0.8).copy()
 
             expWeights = [0.7024254304135277,0.9141199407231614,3.7419080282468262,9.768587299547331,0.47330540899197004]
-            expAmounts = [1065649,753785,130525,46182,1487686]
+            expAmounts = [1000000,753785,110525,46182,1487686]
             simAmounts = [ttables[i].shape[0] for i in range(5)]
             scales = [expAmounts[i]/simAmounts[i] for i in range(5)]
 
@@ -234,7 +258,7 @@ class DataManager():
             print(scales)
 
             for i in range(5):
-                ttables[i] = ttables[i].sample(frac=scales[i]).copy()
+                ttables[i] = ttables[i].sample(frac=scales[i], random_state=sampling_seed + i).copy()
 
             #ttables[2] = ttables[2].sample(frac=0.3).copy() #0.3
             #ttables[3] = ttables[3].sample(frac=0.3).copy()
@@ -340,6 +364,3 @@ class DataManager():
         stdValues = np.loadtxt(os.path.join("nndata",'stdValues' + self.dataSetType + '.txt'))
         return meanValues, stdValues
         
-
-
-
