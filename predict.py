@@ -12,9 +12,15 @@ import pandas
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
-from models.model import DANN, Encoder, Classifier, Discriminator
+from models.model import (
+    DANN, Encoder, Classifier, Discriminator,
+    infer_encoder_correction_mode,
+)
 from models.model import Model
-from dataHandling import My_dataset, DataManager, load_dataset
+from dataHandling import (
+    EXPERIMENT_DOMAIN, SIMULATION_DOMAIN,
+    My_dataset, DataManager, load_dataset,
+)
 from torch.utils.data import Dataset, SubsetRandomSampler, DataLoader
 from tqdm.auto import tqdm
 from tqdm import trange
@@ -39,12 +45,17 @@ def loadModel(input_dim, nClasses):
     #nn_model.eval()
     return nn_model.to(device)
 
-def loadModelSeparated(input_dim, nClasses):
+def loadModelSeparated(input_dim, nClasses, momentum_index=3):
     latentDim = 64
-    encoder = Encoder(input_dim=input_dim, output_dim=latentDim).to(device).float()
     enc_sd = torch.load(os.path.join('nndata', 'encoder' + dataSetType + '.pt'),
                         map_location=device, weights_only=True)
+    correction_mode = infer_encoder_correction_mode(enc_sd)
+    encoder = Encoder(
+        input_dim=input_dim, output_dim=latentDim,
+        correction_mode=correction_mode, momentum_index=momentum_index,
+    ).to(device).float()
     encoder.load_state_dict(enc_sd)
+    print(f"Loaded encoder correction mode: {correction_mode}")
 
     classifier = Classifier(input_dim=latentDim, output_dim=nClasses).to(device).float()
     cls_sd = torch.load(os.path.join('nndata', 'classifier' + dataSetType + '.pt'),
@@ -76,7 +87,8 @@ def checkDistributions():
     plt.show()
 
 
-def makePredicionList(experiment_path, savePath):
+def makePredicionList(
+        experiment_path, savePath, domain_value=EXPERIMENT_DOMAIN):
     dftCorrExp = pandas.read_parquet(os.path.join("nndata",experiment_path))
 
     #dftCorrExp['charge'] = dftCorrExp['charge'].replace(-1,1)
@@ -104,7 +116,10 @@ def makePredicionList(experiment_path, savePath):
     #load nn and predict
     #nn_model = loadModel(input_dim, nClasses)
     #nn_model.eval()
-    encoder,classifier,discriminator = loadModelSeparated(input_dim, nClasses)
+    momentum_index = dftCorrExp.columns.get_loc('momentum')
+    encoder,classifier,discriminator = loadModelSeparated(
+        input_dim, nClasses, momentum_index
+    )
     encoder.eval()
     classifier.eval()
     discriminator.eval()
@@ -126,7 +141,7 @@ def makePredicionList(experiment_path, savePath):
         #inputTens = torch.tensor(inputArr)
         #print(nn_model(inputTens)[0].softmax(dim=1).detach().cpu().numpy())
         #e_class, e_domain = nn_model(ve_x)
-        e_feature = encoder(ve_x)
+        e_feature = encoder(ve_x, domain_value)
         e_class = classifier(e_feature)
         e_class = e_class.softmax(dim=1).detach().cpu().numpy()
         #e_feature = e_feature[:,0:-1].detach().cpu().numpy()
@@ -667,9 +682,9 @@ def analyseExpAndSim(predFileNameSim, experiment_pathSim, predFileNameExp, exper
     #draw_initial_distribution(tablesClassesS,tablesClassesE)
 
 
-def predict_nn(fName, oName):
+def predict_nn(fName, oName, domain_value=EXPERIMENT_DOMAIN):
 
-    predictionList = makePredicionList(fName, oName)
+    predictionList = makePredicionList(fName, oName, domain_value)
     print(predictionList)
 
     #write_output(predictionList,mod,enlist)
@@ -727,8 +742,8 @@ def plotSimpleComp():
 
 
 
-def predict(fName, oName):
-    predict_nn(fName, oName)
+def predict(fName, oName, domain_value=EXPERIMENT_DOMAIN):
+    predict_nn(fName, oName, domain_value)
 
 #dataManager = DataManager()
 #dataManager.manageDataset("test")
@@ -738,7 +753,9 @@ def predict(fName, oName):
 #print("start python predict")
 if os.environ.get("DANN_SWEEP") == "1":
     sim_file = 'predictedSim' + dataSetType + '.parquet'
-    predict('simu' + dataSetType + '.parquet', sim_file)
+    predict(
+        'simu' + dataSetType + '.parquet', sim_file, SIMULATION_DOMAIN
+    )
     scores = pandas.read_parquet(os.path.join('nndata', sim_file)).to_numpy()[:, :5]
     labels = pandas.read_parquet(os.path.join('nndata', 'simuTest' + dataSetType + '.parquet'))['pid'].to_numpy()
     auc_k_plus = auc(*roc_curve(labels == 2, scores[:, 2])[:2])
@@ -746,8 +763,14 @@ if os.environ.get("DANN_SWEEP") == "1":
     print(f"SWEEP_RESULT auc_k_plus={auc_k_plus:.9f} auc_k_minus={auc_k_minus:.9f} product={auc_k_plus * auc_k_minus:.9f}")
     sys.exit(0)
 
-predict('expu' + dataSetType + '.parquet','predictedExp' + dataSetType + '.parquet')
-predict('simu' + dataSetType + '.parquet','predictedSim' + dataSetType + '.parquet')
+predict(
+    'expu' + dataSetType + '.parquet',
+    'predictedExp' + dataSetType + '.parquet', EXPERIMENT_DOMAIN
+)
+predict(
+    'simu' + dataSetType + '.parquet',
+    'predictedSim' + dataSetType + '.parquet', SIMULATION_DOMAIN
+)
 analyseOutput('predictedExp' + dataSetType + '.parquet','expuTest' + dataSetType + '.parquet',"exp")
 analyseOutput('predictedSim' + dataSetType + '.parquet','simuTest' + dataSetType + '.parquet',"sim")
 

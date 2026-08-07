@@ -14,6 +14,10 @@ import math
 import os
 
 
+EXPERIMENT_DOMAIN = 0.0
+SIMULATION_DOMAIN = 1.0
+
+
 class My_dataset(Dataset):
     def __init__(self, dataTable):
         dataset_x, dataset_y = dataTable

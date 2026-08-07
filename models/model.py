@@ -103,12 +103,109 @@ class DANN(nn.Module):
         return class_output, domain_output
 
 
+def _domain_gate(input_data, domain):
+    if domain is None:
+        return torch.zeros_like(input_data[:, :1])
+    if not torch.is_tensor(domain):
+        return torch.full_like(input_data[:, :1], float(domain))
+    gate = domain.to(device=input_data.device, dtype=input_data.dtype)
+    if gate.ndim == 0:
+        gate = gate.expand(input_data.shape[0]).unsqueeze(1)
+    elif gate.ndim == 1:
+        gate = gate.unsqueeze(1)
+    return gate.clamp(0.0, 1.0)
+
+
+class DomainAffineCorrection(nn.Module):
+    """Bounded per-feature affine correction, initialized to identity."""
+
+    def __init__(self, input_dim, max_shift=0.5, max_scale=0.25):
+        super().__init__()
+        self.raw_shift = nn.Parameter(torch.zeros(input_dim))
+        self.raw_scale = nn.Parameter(torch.zeros(input_dim))
+        self.max_shift = max_shift
+        self.max_scale = max_scale
+
+    def forward(self, input_data, domain):
+        shift = self.max_shift * torch.tanh(self.raw_shift)
+        scale = self.max_scale * torch.tanh(self.raw_scale)
+        correction = shift + scale * input_data
+        return input_data + _domain_gate(input_data, domain) * correction
+
+
+class MomentumDomainCorrection(nn.Module):
+    """Per-feature bounded corrections conditioned on normalized momentum."""
+
+    def __init__(self, input_dim, momentum_index, max_shift=0.5,
+                 max_scale=0.25):
+        super().__init__()
+        self.momentum_index = momentum_index
+        self.max_shift = max_shift
+        self.max_scale = max_scale
+        self.shift_networks = nn.ModuleList()
+        self.scale_networks = nn.ModuleList()
+        for _ in range(input_dim):
+            shift_network = nn.Sequential(
+                nn.Linear(1, 8), nn.Tanh(), nn.Linear(8, 1)
+            )
+            scale_network = nn.Sequential(
+                nn.Linear(1, 8), nn.Tanh(), nn.Linear(8, 1)
+            )
+            nn.init.zeros_(shift_network[-1].weight)
+            nn.init.zeros_(shift_network[-1].bias)
+            nn.init.zeros_(scale_network[-1].weight)
+            nn.init.zeros_(scale_network[-1].bias)
+            self.shift_networks.append(shift_network)
+            self.scale_networks.append(scale_network)
+
+    def forward(self, input_data, domain):
+        momentum = input_data[:, self.momentum_index:self.momentum_index + 1]
+        raw_shift = torch.cat(
+            [network(momentum) for network in self.shift_networks], dim=1
+        )
+        raw_scale = torch.cat(
+            [network(momentum) for network in self.scale_networks], dim=1
+        )
+        shift = self.max_shift * torch.tanh(raw_shift)
+        scale = self.max_scale * torch.tanh(raw_scale)
+        correction = shift + scale * input_data
+        return input_data + _domain_gate(input_data, domain) * correction
+
+
+def infer_encoder_correction_mode(state_dict):
+    """Infer the optional correction architecture stored in a checkpoint."""
+    keys = state_dict.keys()
+    if any(
+        key.startswith((
+            "domain_correction.shift_networks",
+            "domain_correction.momentum_network",
+        ))
+        for key in keys
+    ):
+        return "momentum"
+    if "domain_correction.raw_shift" in state_dict:
+        return "affine"
+    return "none"
+
+
 class Encoder(nn.Module):
 
-    def __init__(self, input_dim, output_dim):
+    def __init__(self, input_dim, output_dim, correction_mode="none",
+                 momentum_index=0):
         super(Encoder, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
+        self.correction_mode = correction_mode
+        if correction_mode == "affine":
+            self.domain_correction = DomainAffineCorrection(input_dim)
+        elif correction_mode == "momentum":
+            self.domain_correction = MomentumDomainCorrection(
+                input_dim, momentum_index
+            )
+        elif correction_mode != "none":
+            raise ValueError(
+                "correction_mode must be 'none', 'affine', or 'momentum'"
+            )
 
         
         self.feature = nn.Sequential(
@@ -152,7 +249,9 @@ class Encoder(nn.Module):
         )
         """
 
-    def forward(self, input_data):
+    def forward(self, input_data, domain=None):
+        if self.correction_mode != "none":
+            input_data = self.domain_correction(input_data, domain)
         feature = self.feature(input_data)
 
         return feature

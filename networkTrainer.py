@@ -18,7 +18,10 @@ from tqdm import trange
 from pympler import asizeof
 from models.model import DANN, Encoder, Classifier, Discriminator
 from models.model import Model
-from dataHandling import My_dataset, DataManager, load_dataset
+from dataHandling import (
+    EXPERIMENT_DOMAIN, SIMULATION_DOMAIN,
+    My_dataset, DataManager, load_dataset,
+)
 from dann_diagnostics import validation_metrics, gradient_metrics
 
 
@@ -375,9 +378,13 @@ def train_Proper_DANN_model(encoder, classifier, discriminator, sim_loader, exp_
             domain_labele = torch.ones(len(e_x)).long().to(device)
             combined_domain_label = torch.cat((domain_label, domain_labele), 0).to(device)
 
-            combined_feature = encoder(combined_x)
-            sim_feature = encoder(s_x)
-            exp_feature = encoder(e_x)
+            combined_domain = torch.cat((
+                torch.full((len(s_x), 1), SIMULATION_DOMAIN, device=device),
+                torch.full((len(e_x), 1), EXPERIMENT_DOMAIN, device=device),
+            ))
+            combined_feature = encoder(combined_x, combined_domain)
+            sim_feature = encoder(s_x, SIMULATION_DOMAIN)
+            exp_feature = encoder(e_x, EXPERIMENT_DOMAIN)
 
             # 1.Classification loss
             s_class = classifier(sim_feature)
@@ -515,6 +522,20 @@ def load_Corrected_DANN_warm_start(module, checkpoint_path, component_name):
     try:
         module.load_state_dict(state_dict)
     except RuntimeError as error:
+        if (component_name == "encoder"
+                and getattr(module, "correction_mode", "none") != "none"):
+            incompatible = module.load_state_dict(state_dict, strict=False)
+            allowed_missing = all(
+                key.startswith("domain_correction.")
+                for key in incompatible.missing_keys
+            )
+            if allowed_missing and not incompatible.unexpected_keys:
+                print(
+                    "Initialized the new domain correction as identity while "
+                    "loading the encoder warm start."
+                )
+                print(f"Loaded DANN warm-start {component_name}: {checkpoint_path}")
+                return
         state_keys = list(state_dict)
         first_key = state_keys[0] if state_keys else "<empty state dict>"
         raise RuntimeError(
@@ -540,8 +561,8 @@ def warmup_Corrected_DANN_discriminator(encoder, discriminator, sim_loader,
             s_x = s_x.to(device)
             e_x = e_x.to(device)
             with torch.no_grad():
-                sim_feature = encoder(s_x)
-                exp_feature = encoder(e_x)
+                sim_feature = encoder(s_x, SIMULATION_DOMAIN)
+                exp_feature = encoder(e_x, EXPERIMENT_DOMAIN)
             optimizer.zero_grad(set_to_none=True)
             domain_loss = charge_balanced_domain_loss(
                 discriminator.domain_logits(sim_feature),
@@ -628,8 +649,8 @@ def train_Corrected_DANN_model(
             # Discriminator-only updates: detached features prevent encoder
             # gradients, while multiple steps keep the adversary informative.
             with torch.no_grad():
-                sim_feature_detached = encoder(s_x)
-                exp_feature_detached = encoder(e_x)
+                sim_feature_detached = encoder(s_x, SIMULATION_DOMAIN)
+                exp_feature_detached = encoder(e_x, EXPERIMENT_DOMAIN)
             for _ in range(discriminator_steps):
                 discriminator_optimizer.zero_grad(set_to_none=True)
                 discriminator_loss = charge_balanced_domain_loss(
@@ -643,8 +664,8 @@ def train_Corrected_DANN_model(
             # Encoder/classifier update: discriminator parameters are frozen,
             # but its input derivative is retained and reversed for encoder.
             main_optimizer.zero_grad(set_to_none=True)
-            sim_feature = encoder(s_x)
-            exp_feature = encoder(e_x)
+            sim_feature = encoder(s_x, SIMULATION_DOMAIN)
+            exp_feature = encoder(e_x, EXPERIMENT_DOMAIN)
             class_logits = classifier(sim_feature)
             class_loss = lossClass(class_logits, s_y)
             discriminator.requires_grad_(False)
@@ -753,18 +774,24 @@ def train_NN(simulation_path, experiment_path):
     if device == "cpu":
         torch.set_num_threads(cpu_threads)
     learning_rate = float(os.environ.get("DANN_LR", 0.00003))
-    weight_decay = float(os.environ.get("DANN_WEIGHT_DECAY", 0.00001))
+    weight_decay = float(os.environ.get("DANN_WEIGHT_DECAY", 0.0000001))
     discriminator_learning_rate = float(os.environ.get("DANN_DISCRIMINATOR_LR", 0.001))
     sample_fraction = float(os.environ.get("DANN_SAMPLE_FRACTION", 0.8))
-    num_epochs = int(os.environ.get("DANN_EPOCHS", 2))
+    num_epochs = int(os.environ.get("DANN_EPOCHS", 3))
     discriminator_warmup_epochs = int(os.environ.get("DANN_DISCRIMINATOR_WARMUP_EPOCHS", 0))
-    discriminator_steps = int(os.environ.get("DANN_DISCRIMINATOR_STEPS", 5))
+    discriminator_steps = int(os.environ.get("DANN_DISCRIMINATOR_STEPS", 3))
     domain_weight = float(os.environ.get("DANN_DOMAIN_WEIGHT", 0.5))
     probe_samples = int(os.environ.get("DANN_PROBE_SAMPLES", 30000))
     probe_epochs = int(os.environ.get("DANN_PROBE_EPOCHS", 8))
     minimum_accuracy = float(os.environ.get("DANN_MIN_VALID_ACCURACY", 0.97))
     max_class_accuracy_drop = float(os.environ.get("DANN_MAX_CLASS_ACCURACY_DROP", 0.04))
-    warm_start = True # Set False to initialize encoder/classifier from scratch.
+    correction_mode = "affine"  # Options: "none", "affine", "momentum"
+    correction_mode = os.environ.get("DANN_CORRECTION_MODE", correction_mode)
+    if correction_mode not in ("none", "affine", "momentum"):
+        raise ValueError(
+            "DANN_CORRECTION_MODE must be 'none', 'affine', or 'momentum'"
+        )
+    warm_start = False # Set False to initialize encoder/classifier from scratch.
     if "DANN_WARM_START" in os.environ:
         warm_start = os.environ["DANN_WARM_START"].lower() not in (
             "0", "false", "no"
@@ -844,7 +871,11 @@ def train_NN(simulation_path, experiment_path):
 
     latentDim = 64
 
-    encoder = Encoder(input_dim=input_dim, output_dim=latentDim).type(torch.FloatTensor).to(device)
+    momentum_index = features.index("momentum")
+    encoder = Encoder(
+        input_dim=input_dim, output_dim=latentDim,
+        correction_mode=correction_mode, momentum_index=momentum_index,
+    ).type(torch.FloatTensor).to(device)
     classifier = Classifier(input_dim=latentDim, output_dim=nClasses).type(torch.FloatTensor).to(device)
     discriminator = Discriminator(input_dim=latentDim, output_dim=2).type(torch.FloatTensor).to(device)
 
@@ -930,6 +961,11 @@ def train_NN(simulation_path, experiment_path):
         "discriminator_warmup_epochs": discriminator_warmup_epochs,
         "discriminator_steps": discriminator_steps,
         "domain_weight": domain_weight,
+        "correction_mode": correction_mode,
+        "correction_domain_values": {
+            "experiment": EXPERIMENT_DOMAIN,
+            "simulation": SIMULATION_DOMAIN,
+        },
         "minimum_validation_accuracy": minimum_accuracy,
         "maximum_per_class_accuracy_drop": max_class_accuracy_drop,
         "warm_start": warm_start,
@@ -947,11 +983,19 @@ def train_NN(simulation_path, experiment_path):
                   input_names = ["input"],              # the model's input names
                   output_names = ["class","domain"])            # the model's output names
     
+    encoder_export_input = torch.randn(1, input_dim)
+    encoder_export_args = encoder_export_input
+    encoder_input_names = ["input"]
+    if correction_mode != "none":
+        encoder_export_args = (
+            encoder_export_input, torch.zeros(1, 1)
+        )
+        encoder_input_names = ["input", "domain"]
     torch.onnx.export(encoder.cpu(),                                # model being run
-                  torch.randn(1, input_dim),    # model input (or a tuple for multiple inputs)
+                  encoder_export_args,    # model input (or a tuple of inputs)
                   #os.path.join("nndata",'encoder' + dataSetType + '.onnx'),           # production-name alternative
                   os.path.join("nndata",'encoder' + output_tag + '.onnx'),           # where to save the model (can be a file or file-like object)
-                  input_names = ["input"],              # the model's input names
+                  input_names = encoder_input_names,              # model input names
                   output_names = ["features"])            # the model's output names
     torch.onnx.export(classifier.cpu(),                                # model being run
                   torch.randn(1, latentDim),    # model input (or a tuple for multiple inputs)

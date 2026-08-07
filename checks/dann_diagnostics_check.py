@@ -8,7 +8,9 @@ from dann_diagnostics import (
     balanced_domain_loss,
     conditional_domain_loss,
 )
-from models.model import ReverseLayerF
+from models.model import (
+    DomainAffineCorrection, MomentumDomainCorrection, ReverseLayerF,
+)
 
 
 class DannDiagnosticsCheck(unittest.TestCase):
@@ -44,6 +46,29 @@ class DannDiagnosticsCheck(unittest.TestCase):
     def test_alpha_schedule_has_expected_endpoints(self):
         self.assertEqual(alpha_schedule(0, 100, 3.0), 0.0)
         self.assertGreater(alpha_schedule(99, 100, 3.0), 2.99)
+
+    def test_domain_corrections_initialize_as_identity(self):
+        values = torch.randn(12, 5)
+        momentum_correction = MomentumDomainCorrection(5, momentum_index=0)
+        for correction in (
+            DomainAffineCorrection(5),
+            momentum_correction,
+        ):
+            self.assertTrue(torch.equal(correction(values, 0.0), values))
+            self.assertTrue(torch.equal(correction(values, 1.0), values))
+        self.assertEqual(len(momentum_correction.shift_networks), 5)
+        self.assertEqual(len(momentum_correction.scale_networks), 5)
+        self.assertEqual(momentum_correction.shift_networks[0][0].out_features, 8)
+        self.assertEqual(momentum_correction.shift_networks[0][-1].out_features, 1)
+
+    def test_affine_correction_only_changes_simulation(self):
+        correction = DomainAffineCorrection(3)
+        with torch.no_grad():
+            correction.raw_shift.fill_(0.5)
+            correction.raw_scale.fill_(0.5)
+        values = torch.ones(4, 3)
+        self.assertTrue(torch.equal(correction(values, 0.0), values))
+        self.assertFalse(torch.equal(correction(values, 1.0), values))
 
 
 if __name__ == "__main__":

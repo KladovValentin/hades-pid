@@ -18,6 +18,7 @@ import torch.nn as nn
 from sklearn.metrics import roc_auc_score
 from torch.utils.data import DataLoader, TensorDataset
 
+from dataHandling import EXPERIMENT_DOMAIN, SIMULATION_DOMAIN
 from models.model import Classifier, Discriminator, Encoder
 
 
@@ -197,15 +198,19 @@ def train_epoch(
         sim_group = exp_group = None
         if conditioning == "pseudo-class":
             with torch.no_grad():
-                sim_group = classifier(encoder(sim_x)).argmax(dim=1)
-                exp_group = classifier(encoder(exp_x)).argmax(dim=1)
+                sim_group = classifier(
+                    encoder(sim_x, SIMULATION_DOMAIN)
+                ).argmax(dim=1)
+                exp_group = classifier(
+                    encoder(exp_x, EXPERIMENT_DOMAIN)
+                ).argmax(dim=1)
 
         if mode == "alternating":
             # Give the discriminator enough optimization capacity to remain a
             # meaningful adversary. Encoder features are detached here.
             with torch.no_grad():
-                sim_detached = encoder(sim_x)
-                exp_detached = encoder(exp_x)
+                sim_detached = encoder(sim_x, SIMULATION_DOMAIN)
+                exp_detached = encoder(exp_x, EXPERIMENT_DOMAIN)
             for _ in range(disc_steps):
                 disc_optimizer.zero_grad(set_to_none=True)
                 disc_loss = make_domain_loss(
@@ -218,8 +223,8 @@ def train_epoch(
                 disc_optimizer.step()
 
         main_optimizer.zero_grad(set_to_none=True)
-        sim_z = encoder(sim_x)
-        exp_z = encoder(exp_x)
+        sim_z = encoder(sim_x, SIMULATION_DOMAIN)
+        exp_z = encoder(exp_x, EXPERIMENT_DOMAIN)
         class_loss = nn.functional.cross_entropy(classifier(sim_z), sim_y)
 
         if mode == "source-only":
@@ -261,7 +266,8 @@ def warm_up_discriminator(
         for (sim_x, _), (exp_x, _) in paired_batches(sim_loader, exp_loader):
             sim_x, exp_x = sim_x.to(device), exp_x.to(device)
             with torch.no_grad():
-                sim_z, exp_z = encoder(sim_x), encoder(exp_x)
+                sim_z = encoder(sim_x, SIMULATION_DOMAIN)
+                exp_z = encoder(exp_x, EXPERIMENT_DOMAIN)
                 sim_group = exp_group = None
                 if conditioning == "pseudo-class":
                     sim_group = classifier(sim_z).argmax(dim=1)
@@ -280,7 +286,10 @@ def warm_up_discriminator(
 
 
 @torch.no_grad()
-def collect_outputs(encoder, classifier, discriminator, data, device, batch_size):
+def collect_outputs(
+    encoder, classifier, discriminator, data, device, batch_size,
+    domain_value,
+):
     encoder.eval()
     classifier.eval()
     discriminator.eval()
@@ -288,7 +297,7 @@ def collect_outputs(encoder, classifier, discriminator, data, device, batch_size
     latents, classes, domain_probabilities = [], [], []
     for x, _ in loader:
         x = x.to(device)
-        z = encoder(x)
+        z = encoder(x, domain_value)
         latents.append(z.cpu())
         classes.append(classifier(z).argmax(dim=1).cpu())
         probabilities = discriminator.domain_logits(z).softmax(dim=1)[:, 1]
@@ -375,10 +384,12 @@ def validation_metrics(
     device, batch_size, seed, probe_samples, probe_epochs,
 ):
     sim_z, sim_prediction, sim_domain = collect_outputs(
-        encoder, classifier, discriminator, sim_valid, device, batch_size
+        encoder, classifier, discriminator, sim_valid, device, batch_size,
+        SIMULATION_DOMAIN,
     )
     exp_z, exp_prediction, exp_domain = collect_outputs(
-        encoder, classifier, discriminator, exp_valid, device, batch_size
+        encoder, classifier, discriminator, exp_valid, device, batch_size,
+        EXPERIMENT_DOMAIN,
     )
     domain_labels = np.concatenate((np.zeros(len(sim_z)), np.ones(len(exp_z))))
     domain_scores = np.concatenate((sim_domain, exp_domain))
@@ -451,7 +462,8 @@ def gradient_metrics(
     sim_x = sim_x.to(device)
     sim_y = sim_y.long().flatten().to(device)
     exp_x = exp_x.to(device)
-    sim_z, exp_z = encoder(sim_x), encoder(exp_x)
+    sim_z = encoder(sim_x, SIMULATION_DOMAIN)
+    exp_z = encoder(exp_x, EXPERIMENT_DOMAIN)
     sim_logits = classifier(sim_z)
     exp_logits = classifier(exp_z)
     class_loss = nn.functional.cross_entropy(sim_logits, sim_y)
@@ -482,6 +494,10 @@ def parse_args():
     parser.add_argument("--mode", choices=("source-only", "grl", "alternating"), default="alternating")
     parser.add_argument("--conditioning", choices=("charge", "pseudo-class"), default="charge")
     parser.add_argument("--feature-set", choices=("stored", "base"), default="stored")
+    parser.add_argument(
+        "--correction-mode", choices=("none", "affine", "momentum"),
+        default="none",
+    )
     parser.add_argument("--sample-fraction", type=float, default=0.1)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=4096)
@@ -521,7 +537,9 @@ def main():
     exp_valid_loader = make_loader(exp_valid, args.batch_size, False, args.seed)
     charge_index = features.index("charge")
 
-    encoder = Encoder(len(features), 64).to(device)
+    encoder = Encoder(
+        len(features), 64, args.correction_mode, features.index("momentum")
+    ).to(device)
     classifier = Classifier(64, 5).to(device)
     discriminator = Discriminator(64, 2).to(device)
     for module, checkpoint in (
