@@ -116,30 +116,49 @@ def _domain_gate(input_data, domain):
     return gate.clamp(0.0, 1.0)
 
 
+def _correction_mask(input_dim, corrected_feature_indices):
+    mask = torch.zeros(input_dim)
+    if corrected_feature_indices is None:
+        mask.fill_(1.0)
+    else:
+        mask[corrected_feature_indices] = 1.0
+    return mask
+
+
 class DomainAffineCorrection(nn.Module):
     """Bounded per-feature affine correction, initialized to identity."""
 
-    def __init__(self, input_dim, max_shift=0.5, max_scale=0.25):
+    def __init__(self, input_dim, corrected_feature_indices=None,
+                 max_shift=0.5, max_scale=0.25):
         super().__init__()
         self.raw_shift = nn.Parameter(torch.zeros(input_dim))
         self.raw_scale = nn.Parameter(torch.zeros(input_dim))
+        self.register_buffer(
+            "correction_mask",
+            _correction_mask(input_dim, corrected_feature_indices),
+        )
         self.max_shift = max_shift
         self.max_scale = max_scale
 
     def forward(self, input_data, domain):
         shift = self.max_shift * torch.tanh(self.raw_shift)
         scale = self.max_scale * torch.tanh(self.raw_scale)
-        correction = shift + scale * input_data
+        correction = self.correction_mask * (shift + scale * input_data)
         return input_data + _domain_gate(input_data, domain) * correction
 
 
 class MomentumDomainCorrection(nn.Module):
     """Per-feature bounded corrections conditioned on normalized momentum."""
 
-    def __init__(self, input_dim, momentum_index, max_shift=0.5,
+    def __init__(self, input_dim, momentum_index,
+                 corrected_feature_indices=None, max_shift=0.5,
                  max_scale=0.25):
         super().__init__()
         self.momentum_index = momentum_index
+        self.register_buffer(
+            "correction_mask",
+            _correction_mask(input_dim, corrected_feature_indices),
+        )
         self.max_shift = max_shift
         self.max_scale = max_scale
         self.shift_networks = nn.ModuleList()
@@ -168,7 +187,7 @@ class MomentumDomainCorrection(nn.Module):
         )
         shift = self.max_shift * torch.tanh(raw_shift)
         scale = self.max_scale * torch.tanh(raw_scale)
-        correction = shift + scale * input_data
+        correction = self.correction_mask * (shift + scale * input_data)
         return input_data + _domain_gate(input_data, domain) * correction
 
 
@@ -191,16 +210,18 @@ def infer_encoder_correction_mode(state_dict):
 class Encoder(nn.Module):
 
     def __init__(self, input_dim, output_dim, correction_mode="none",
-                 momentum_index=0):
+                 momentum_index=0, corrected_feature_indices=None):
         super(Encoder, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.correction_mode = correction_mode
         if correction_mode == "affine":
-            self.domain_correction = DomainAffineCorrection(input_dim)
+            self.domain_correction = DomainAffineCorrection(
+                input_dim, corrected_feature_indices
+            )
         elif correction_mode == "momentum":
             self.domain_correction = MomentumDomainCorrection(
-                input_dim, momentum_index
+                input_dim, momentum_index, corrected_feature_indices
             )
         elif correction_mode != "none":
             raise ValueError(
@@ -248,6 +269,21 @@ class Encoder(nn.Module):
             #nn.LeakyReLU(inplace=True)
         )
         """
+
+    def load_state_dict(self, state_dict, strict=True, assign=False):
+        mask_key = "domain_correction.correction_mask"
+        has_old_correction = any(
+            key.startswith("domain_correction.") for key in state_dict
+        )
+        if (strict and self.correction_mode != "none" and has_old_correction
+                and mask_key not in state_dict):
+            incompatible = super().load_state_dict(
+                state_dict, strict=False, assign=assign
+            )
+            if (incompatible.missing_keys == [mask_key]
+                    and not incompatible.unexpected_keys):
+                return incompatible
+        return super().load_state_dict(state_dict, strict=strict, assign=assign)
 
     def forward(self, input_data, domain=None):
         if self.correction_mode != "none":

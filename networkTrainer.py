@@ -43,8 +43,17 @@ torch.manual_seed(sweep_seed)
 
 
 def charge_balanced_domain_loss(pred_sim, pred_exp, x_sim, x_exp,
-                                loss_domain, charge_index, zero_charge_value):
-    """Give both domains and both charge groups equal domain-loss weight."""
+                                loss_domain, charge_index, zero_charge_value,
+                                balance_by_charge=True):
+    """Compute standard or charge-balanced domain classification loss."""
+    if not balance_by_charge:
+        predictions = torch.cat((pred_sim, pred_exp))
+        labels = torch.cat((
+            torch.zeros(len(pred_sim), dtype=torch.long, device=x_sim.device),
+            torch.ones(len(pred_exp), dtype=torch.long, device=x_exp.device),
+        ))
+        return loss_domain(predictions, labels)
+
     losses = []
     for positive in (False, True):
         sim_mask = (x_sim[:, charge_index] > zero_charge_value) == positive
@@ -549,7 +558,8 @@ def load_Corrected_DANN_warm_start(module, checkpoint_path, component_name):
 def warmup_Corrected_DANN_discriminator(encoder, discriminator, sim_loader,
                                         exp_loader, lossDomain, optimizer,
                                         num_epochs, charge_index,
-                                        zero_charge_value):
+                                        zero_charge_value,
+                                        balance_domain_by_charge=True):
     """Train a fresh discriminator while keeping the encoder frozen."""
     encoder.eval()
     discriminator.train()
@@ -568,6 +578,7 @@ def warmup_Corrected_DANN_discriminator(encoder, discriminator, sim_loader,
                 discriminator.domain_logits(sim_feature),
                 discriminator.domain_logits(exp_feature),
                 s_x, e_x, lossDomain, charge_index, zero_charge_value,
+                balance_domain_by_charge,
             )
             domain_loss.backward()
             optimizer.step()
@@ -595,7 +606,8 @@ def train_Corrected_DANN_model(
         charge_index, zero_charge_value, discriminator_warmup_epochs,
         discriminator_steps, domain_weight, features, output_tag, seed,
         probe_samples, probe_epochs, minimum_accuracy,
-        max_class_accuracy_drop):
+        max_class_accuracy_drop, main_scheduler=None,
+        discriminator_scheduler=None, balance_domain_by_charge=True):
     """Corrected alternating DANN path; legacy trainers above remain available."""
     baseline_validation = validate_Corrected_DANN_model(
         encoder, classifier, discriminator, val_sim_loader, val_exp_loader,
@@ -613,7 +625,7 @@ def train_Corrected_DANN_model(
     warmup_loss = warmup_Corrected_DANN_discriminator(
         encoder, discriminator, sim_loader, exp_loader, lossDomain,
         discriminator_optimizer, discriminator_warmup_epochs,
-        charge_index, zero_charge_value,
+        charge_index, zero_charge_value, balance_domain_by_charge,
     )
     history = []
     best_score = baseline_score
@@ -630,6 +642,10 @@ def train_Corrected_DANN_model(
     total_steps = num_epochs * len_dataloader
 
     for epoch in range(num_epochs):
+        epoch_main_learning_rate = main_optimizer.param_groups[0]["lr"]
+        epoch_discriminator_learning_rate = (
+            discriminator_optimizer.param_groups[0]["lr"]
+        )
         encoder.train()
         classifier.train()
         discriminator.train()
@@ -644,7 +660,7 @@ def train_Corrected_DANN_model(
 
             global_step = epoch * len_dataloader + i_step
             p = float(global_step) / max(total_steps - 1, 1)
-            alpha = 2. / (1. + np.exp(-10 * p)) - 1
+            alpha = 2. / (1. + np.exp(-1 * p)) - 1
 
             # Discriminator-only updates: detached features prevent encoder
             # gradients, while multiple steps keep the adversary informative.
@@ -657,6 +673,7 @@ def train_Corrected_DANN_model(
                     discriminator.domain_logits(sim_feature_detached),
                     discriminator.domain_logits(exp_feature_detached),
                     s_x, e_x, lossDomain, charge_index, zero_charge_value,
+                    balance_domain_by_charge,
                 )
                 discriminator_loss.backward()
                 discriminator_optimizer.step()
@@ -673,6 +690,7 @@ def train_Corrected_DANN_model(
                 discriminator(sim_feature, alpha),
                 discriminator(exp_feature, alpha),
                 s_x, e_x, lossDomain, charge_index, zero_charge_value,
+                balance_domain_by_charge,
             )
             total_loss = class_loss + domain_weight * domain_loss
             total_loss.backward()
@@ -700,6 +718,8 @@ def train_Corrected_DANN_model(
             "epoch": epoch + 1,
             "mean_class_loss": float(np.mean(class_losses)),
             "mean_domain_loss": float(np.mean(domain_losses)),
+            "encoder_classifier_learning_rate": epoch_main_learning_rate,
+            "discriminator_learning_rate": epoch_discriminator_learning_rate,
             "validation": validation,
         }
         history.append(epoch_record)
@@ -723,6 +743,11 @@ def train_Corrected_DANN_model(
                 "discriminator": copy.deepcopy(discriminator.state_dict()),
             }
             selected_epoch = epoch + 1
+
+        if main_scheduler is not None:
+            main_scheduler.step()
+        if discriminator_scheduler is not None:
+            discriminator_scheduler.step()
 
         metrics_path = os.path.join("nndata", "dannMetrics" + output_tag + ".json")
         with open(metrics_path, "w", encoding="utf-8") as metrics_file:
@@ -774,18 +799,27 @@ def train_NN(simulation_path, experiment_path):
     if device == "cpu":
         torch.set_num_threads(cpu_threads)
     learning_rate = float(os.environ.get("DANN_LR", 0.00003))
-    weight_decay = float(os.environ.get("DANN_WEIGHT_DECAY", 0.0000001))
+    classifier_lr_gamma = float(os.environ.get("DANN_CLASSIFIER_LR_GAMMA", 0.3))
+    weight_decay = float(os.environ.get("DANN_WEIGHT_DECAY", 0.00000))
     discriminator_learning_rate = float(os.environ.get("DANN_DISCRIMINATOR_LR", 0.001))
-    sample_fraction = float(os.environ.get("DANN_SAMPLE_FRACTION", 0.8))
+    discriminator_lr_gamma = float(os.environ.get("DANN_DISCRIMINATOR_LR_GAMMA", 0.3))
+    for parameter_name, gamma in (
+        ("DANN_CLASSIFIER_LR_GAMMA", classifier_lr_gamma),
+        ("DANN_DISCRIMINATOR_LR_GAMMA", discriminator_lr_gamma),
+    ):
+        if not 0.0 < gamma <= 1.0:
+            raise ValueError(f"{parameter_name} must be in the interval (0, 1]")
+    sample_fraction = float(os.environ.get("DANN_SAMPLE_FRACTION", 0.1))
     num_epochs = int(os.environ.get("DANN_EPOCHS", 3))
     discriminator_warmup_epochs = int(os.environ.get("DANN_DISCRIMINATOR_WARMUP_EPOCHS", 0))
-    discriminator_steps = int(os.environ.get("DANN_DISCRIMINATOR_STEPS", 3))
-    domain_weight = float(os.environ.get("DANN_DOMAIN_WEIGHT", 0.5))
+    discriminator_steps = int(os.environ.get("DANN_DISCRIMINATOR_STEPS", 20))
+    domain_weight = float(os.environ.get("DANN_DOMAIN_WEIGHT", 10.0))
+    balance_domain_by_charge = os.environ.get("DANN_BALANCE_DOMAIN_BY_CHARGE", "true").lower() not in ("0", "false", "no")
     probe_samples = int(os.environ.get("DANN_PROBE_SAMPLES", 30000))
     probe_epochs = int(os.environ.get("DANN_PROBE_EPOCHS", 8))
-    minimum_accuracy = float(os.environ.get("DANN_MIN_VALID_ACCURACY", 0.97))
-    max_class_accuracy_drop = float(os.environ.get("DANN_MAX_CLASS_ACCURACY_DROP", 0.04))
-    correction_mode = "affine"  # Options: "none", "affine", "momentum"
+    minimum_accuracy = float(os.environ.get("DANN_MIN_VALID_ACCURACY", 0.9))
+    max_class_accuracy_drop = float(os.environ.get("DANN_MAX_CLASS_ACCURACY_DROP", 0.14))
+    correction_mode = "none"  # Options: "none", "affine", "momentum"
     correction_mode = os.environ.get("DANN_CORRECTION_MODE", correction_mode)
     if correction_mode not in ("none", "affine", "momentum"):
         raise ValueError(
@@ -806,7 +840,13 @@ def train_NN(simulation_path, experiment_path):
         "DANN_CLASSIFIER_CHECKPOINT",
         os.path.join("nndata", "classifier" + warm_start_tag + ".pt"),
     )
-    print(f"hyperparameters: lr={learning_rate}, weight_decay={weight_decay}, batch_size={batch_size}")
+    print(
+        "hyperparameters: "
+        f"lr={learning_rate}, classifier_lr_gamma={classifier_lr_gamma}, "
+        f"discriminator_lr={discriminator_learning_rate}, "
+        f"discriminator_lr_gamma={discriminator_lr_gamma}, "
+        f"weight_decay={weight_decay}, batch_size={batch_size}"
+    )
 
     dftCorr = pandas.read_parquet(os.path.join("nndata",simulation_path))
     charge_index = dftCorr.columns.get_loc('charge')
@@ -872,9 +912,14 @@ def train_NN(simulation_path, experiment_path):
     latentDim = 64
 
     momentum_index = features.index("momentum")
+    corrected_feature_names = ["momentum", "mdcdedx", "beta"]
+    corrected_feature_indices = [
+        features.index(feature) for feature in corrected_feature_names
+    ]
     encoder = Encoder(
         input_dim=input_dim, output_dim=latentDim,
         correction_mode=correction_mode, momentum_index=momentum_index,
+        corrected_feature_indices=corrected_feature_indices,
     ).type(torch.FloatTensor).to(device)
     classifier = Classifier(input_dim=latentDim, output_dim=nClasses).type(torch.FloatTensor).to(device)
     discriminator = Discriminator(input_dim=latentDim, output_dim=2).type(torch.FloatTensor).to(device)
@@ -926,10 +971,16 @@ def train_NN(simulation_path, experiment_path):
     )
     discriminator_optimizer = optim.AdamW(
         discriminator.parameters(), lr=discriminator_learning_rate,
-        betas=(0.5, 0.99), weight_decay=weight_decay
+        betas=(0.9, 0.999), weight_decay=0
     )
 
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.3)
+    main_scheduler = optim.lr_scheduler.StepLR(
+        main_optimizer, step_size=1, gamma=classifier_lr_gamma
+    )
+    discriminator_scheduler = optim.lr_scheduler.StepLR(
+        discriminator_optimizer, step_size=1,
+        gamma=discriminator_lr_gamma,
+    )
     #scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, threshold=0.2, factor=0.2)
 
     print("prepared to train nn")
@@ -944,7 +995,8 @@ def train_NN(simulation_path, experiment_path):
         zero_charge_value, discriminator_warmup_epochs,
         discriminator_steps, domain_weight, features, output_tag,
         sweep_seed, probe_samples, probe_epochs, minimum_accuracy,
-        max_class_accuracy_drop
+        max_class_accuracy_drop, main_scheduler, discriminator_scheduler,
+        balance_domain_by_charge
     )
     #train_DANN_model(nn_model, train_loader, exp_dataLoader, exp_valLoader, valid_loader, loss, loss_domain, optimizer, 3, scheduler=scheduler)
 
@@ -957,11 +1009,15 @@ def train_NN(simulation_path, experiment_path):
         "sample_fraction": sample_fraction,
         "epochs": num_epochs,
         "encoder_classifier_learning_rate": learning_rate,
+        "encoder_classifier_learning_rate_gamma": classifier_lr_gamma,
         "discriminator_learning_rate": discriminator_learning_rate,
+        "discriminator_learning_rate_gamma": discriminator_lr_gamma,
         "discriminator_warmup_epochs": discriminator_warmup_epochs,
         "discriminator_steps": discriminator_steps,
         "domain_weight": domain_weight,
+        "balance_domain_by_charge": balance_domain_by_charge,
         "correction_mode": correction_mode,
+        "corrected_features": corrected_feature_names,
         "correction_domain_values": {
             "experiment": EXPERIMENT_DOMAIN,
             "simulation": SIMULATION_DOMAIN,
